@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from "react";
+import { ArrowUp, Plus, Trash2 } from "lucide-react";
 import type { ChatMessage, PersistedTask } from "../shared/rpc";
-import { loadTasks, saveTask, sendUserMessage, subscribe } from "./rpc";
+import {
+	deleteTask,
+	loadTasks,
+	saveTask,
+	sendUserMessage,
+	subscribe,
+} from "./rpc";
 import type { AgentEvent } from "./rpc";
 
 interface ToolEvent {
@@ -190,7 +197,7 @@ function App() {
 			setTasks((prev) => [task, ...prev]);
 			setActiveId(task.id);
 			setInput("");
-			sendUserMessage(assistantId, [{ role: "user", content: text }]);
+			sendUserMessage(assistantId, task.id, [{ role: "user", content: text }]);
 			return;
 		}
 
@@ -210,12 +217,19 @@ function App() {
 			),
 		);
 		setInput("");
-		sendUserMessage(assistantId, history);
+		sendUserMessage(assistantId, activeTask.id, history);
 	}
 
 	function newTask() {
 		setActiveId(null);
 		setInput("");
+	}
+
+	function removeTask(id: string) {
+		setTasks((prev) => prev.filter((t) => t.id !== id));
+		savedRef.current.delete(id);
+		if (activeId === id) setActiveId(null);
+		deleteTask(id); // backend deletes the row and removes its sandboxes
 	}
 
 	function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -235,6 +249,7 @@ function App() {
 					activeId={activeId}
 					onSelect={setActiveId}
 					onNew={newTask}
+					onDelete={removeTask}
 				/>
 
 				<main className="flex-1 flex flex-col min-w-0">
@@ -283,11 +298,13 @@ function Sidebar({
 	activeId,
 	onSelect,
 	onNew,
+	onDelete,
 }: {
 	tasks: Task[];
 	activeId: string | null;
 	onSelect: (id: string) => void;
 	onNew: () => void;
+	onDelete: (id: string) => void;
 }) {
 	return (
 		<aside className="w-72 shrink-0 border-r border-stone-200 bg-white flex flex-col">
@@ -299,14 +316,7 @@ function Sidebar({
 					className="w-7 h-7 rounded-lg bg-clay-500 text-white flex items-center justify-center hover:bg-clay-600 transition-colors"
 					title="新建任务"
 				>
-					<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-						<path
-							d="M8 3.5v9M3.5 8h9"
-							stroke="currentColor"
-							strokeWidth="1.75"
-							strokeLinecap="round"
-						/>
-					</svg>
+					<Plus size={16} aria-hidden="true" />
 				</button>
 			</div>
 
@@ -322,6 +332,7 @@ function Sidebar({
 							task={task}
 							selected={task.id === activeId}
 							onClick={() => onSelect(task.id)}
+							onDelete={() => onDelete(task.id)}
 						/>
 					))
 				)}
@@ -334,28 +345,42 @@ function TaskCard({
 	task,
 	selected,
 	onClick,
+	onDelete,
 }: {
 	task: Task;
 	selected: boolean;
 	onClick: () => void;
+	onDelete: () => void;
 }) {
 	return (
-		<button
-			type="button"
-			onClick={onClick}
-			className={`w-full text-left rounded-xl px-3 py-3 transition-colors ${
+		<div
+			className={`group relative rounded-xl transition-colors ${
 				selected ? "bg-clay-50 ring-1 ring-clay-200" : "hover:bg-stone-50"
 			}`}
 		>
-			<StatusLabel busy={task.busy} />
-			<p
-				className={`mt-1 text-sm leading-snug ${
-					selected ? "text-stone-900 font-medium" : "text-stone-700"
-				}`}
+			<button
+				type="button"
+				onClick={onClick}
+				className="w-full text-left rounded-xl px-3 py-3 pr-9"
 			>
-				{task.title}
-			</p>
-		</button>
+				<StatusLabel busy={task.busy} />
+				<p
+					className={`mt-1 text-sm leading-snug ${
+						selected ? "text-stone-900 font-medium" : "text-stone-700"
+					}`}
+				>
+					{task.title}
+				</p>
+			</button>
+			<button
+				type="button"
+				onClick={onDelete}
+				title="删除任务（同时移除其沙箱）"
+				className="absolute top-2.5 right-2 w-6 h-6 rounded-md flex items-center justify-center text-stone-400 opacity-0 group-hover:opacity-100 hover:bg-stone-200 hover:text-red-600 transition"
+			>
+				<Trash2 size={14} aria-hidden="true" />
+			</button>
+		</div>
 	);
 }
 
@@ -534,15 +559,7 @@ function Composer({
 						{busy ? (
 							<span className="text-sm">…</span>
 						) : (
-							<svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-								<path
-									d="M9 14.5v-11M4.5 8L9 3.5 13.5 8"
-									stroke="currentColor"
-									strokeWidth="1.75"
-									strokeLinecap="round"
-									strokeLinejoin="round"
-								/>
-							</svg>
+							<ArrowUp size={18} aria-hidden="true" />
 						)}
 					</button>
 				</div>

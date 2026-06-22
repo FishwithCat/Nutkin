@@ -2,9 +2,9 @@
 
 A minimal desktop AI agent: an Electrobun app (React + Tailwind + Vite HMR) whose
 Bun main process runs a [Vercel AI SDK](https://github.com/vercel/ai) agent backed
-by DeepSeek. The agent can call tools (current time, calculator) in a multi-step
-loop, and the result streams live into the chat UI. Conversations persist
-across restarts in a local SQLite database.
+by DeepSeek. The agent can call tools (current time, calculator, and isolated
+sandboxes) in a multi-step loop, and the result streams live into the chat UI.
+Conversations persist across restarts in a local SQLite database.
 
 ## Setup
 
@@ -63,6 +63,35 @@ ships each finished task to the Bun process (`saveTask`) and loads them on
 startup (`loadTasks`); the agent itself stays stateless. The database lives at
 `<userData>/sessions.db` (macOS: `~/Library/Application Support/<id>/<channel>/`),
 one row per conversation with the messages as a JSON blob.
+
+## Sandboxes
+
+The agent can spin up isolated Linux microVMs and run commands in them, via
+[microsandbox](https://github.com/microsandbox/microsandbox). Sandboxes are
+**scoped to the chat session** (namespaced `<sessionId>__<name>`) and **persist
+across restarts** — microsandbox keeps each sandbox's filesystem on the host
+under `~/.microsandbox/`. While the app is idle between turns the sandbox stays
+running; on shutdown it is stopped (files preserved). The next time the agent
+touches a sandbox it doesn't have a live handle for, `src/bun/sandbox.ts`
+re-attaches to the persisted one and resumes it (`reattach()`), so files written
+in an earlier session are still there.
+
+Tools (in `src/bun/agent.ts`, backed by `src/bun/sandbox.ts`):
+
+- `createSandbox(name?, image?)` — boot a sandbox (default name `default`, default image `alpine`). Adopts a same-named sandbox left on disk by an earlier run.
+- `runCommand(name?, command, args?)` — run a command, returns stdout/stderr/exit code. Lazily re-attaches after a restart.
+- `stopSandbox(name?)` — pause a sandbox (files preserved; resumes on next command).
+- `listSandboxes()` — this session's sandboxes (including persisted ones) with status.
+
+Just ask in chat, e.g. *"create a sandbox and run `uname -a` in it"*.
+
+Requirements: a host with hardware virtualization — macOS on Apple Silicon, or
+Linux with KVM. The first `createSandbox` for a given image pulls and caches it,
+so the first boot is slower.
+
+> Sandboxes accumulate on disk (one per session/name) since they persist. There
+> is no automatic GC tied to deleting a chat yet — remove stale ones with
+> `Sandbox.remove(name)` or the `msb` CLI if they pile up.
 
 ## How HMR Works
 

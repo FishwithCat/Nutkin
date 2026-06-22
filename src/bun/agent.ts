@@ -8,6 +8,12 @@
 import { deepseek } from "@ai-sdk/deepseek";
 import { stepCountIs, streamText, tool, type ModelMessage } from "ai";
 import { z } from "zod";
+import {
+	createSandbox,
+	listSandboxes,
+	runCommand,
+	stopSandbox,
+} from "./sandbox";
 
 // Bun auto-loads .env, so DEEPSEEK_API_KEY is picked up automatically by the
 // provider. Override the model with DEEPSEEK_MODEL (e.g. "deepseek-reasoner").
@@ -16,6 +22,10 @@ const MODEL = process.env.DEEPSEEK_MODEL ?? "deepseek-v4-flash";
 const SYSTEM_PROMPT = [
 	"You are a helpful AI assistant powered by DeepSeek.",
 	"You can call tools to get the current time or evaluate arithmetic.",
+	"You can also create isolated Linux sandboxes (microVMs, default image 'alpine')",
+	"with createSandbox, run shell commands inside them with runCommand, and stop",
+	"them with stopSandbox. Sandboxes are scoped to this chat session and are reset",
+	"when the app restarts — create one before running commands.",
 	"Use a tool whenever it gives a more accurate answer than guessing.",
 	"Answer in the same language the user writes in.",
 ].join(" ");
@@ -66,6 +76,62 @@ export const tools = {
 	}),
 };
 
+// Sandbox tools are built per session so each chat's sandboxes stay isolated.
+function sandboxTools(sessionId: string) {
+	return {
+		createSandbox: tool({
+			description:
+				"Create an isolated Linux sandbox (microVM) in this session. Boot it before running commands. Names must be unique within the session.",
+			inputSchema: z.object({
+				name: z
+					.string()
+					.optional()
+					.describe("Sandbox name, unique in this session. Defaults to 'default'."),
+				image: z
+					.string()
+					.optional()
+					.describe("OCI image to boot, e.g. 'alpine', 'python', 'debian'. Defaults to 'alpine'."),
+			}),
+			execute: ({ name = "default", image = "alpine" }) =>
+				createSandbox(sessionId, name, image),
+		}),
+		runCommand: tool({
+			description:
+				"Run a command inside a sandbox in this session and return its stdout, stderr, and exit code.",
+			inputSchema: z.object({
+				name: z
+					.string()
+					.optional()
+					.describe("Which sandbox to run in. Defaults to 'default'."),
+				command: z.string().describe("The executable to run, e.g. 'sh', 'ls', 'python'."),
+				args: z
+					.array(z.string())
+					.optional()
+					.describe("Arguments, e.g. ['-c', 'echo hi']."),
+			}),
+			execute: ({ name = "default", command, args = [] }) =>
+				runCommand(sessionId, name, command, args),
+		}),
+		stopSandbox: tool({
+			description:
+				"Stop (pause) a sandbox in this session. Its files are preserved and it resumes automatically the next time you run a command in it.",
+			inputSchema: z.object({
+				name: z
+					.string()
+					.optional()
+					.describe("Which sandbox to stop. Defaults to 'default'."),
+			}),
+			execute: ({ name = "default" }) => stopSandbox(sessionId, name),
+		}),
+		listSandboxes: tool({
+			description:
+				"List this session's sandboxes (including ones persisted from earlier runs) with their status.",
+			inputSchema: z.object({}),
+			execute: () => listSandboxes(sessionId),
+		}),
+	};
+}
+
 export interface AgentEvents {
 	onText: (text: string) => void;
 	onReasoning: (text: string) => void;
@@ -81,6 +147,7 @@ export interface AgentEvents {
  * always calls `events.onDone` exactly once at the end.
  */
 export async function runAgent(
+	sessionId: string,
 	messages: ModelMessage[],
 	events: AgentEvents,
 ): Promise<void> {
@@ -97,10 +164,10 @@ export async function runAgent(
 			model: deepseek(MODEL),
 			system: SYSTEM_PROMPT,
 			messages,
-			tools,
+			tools: { ...tools, ...sandboxTools(sessionId) },
 			// The agentic loop: keep taking steps (model call -> tool calls ->
-			// model call ...) until the model stops or we hit 8 steps.
-			stopWhen: stepCountIs(8),
+			// model call ...) until the model stops or we hit 50 steps.
+			stopWhen: stepCountIs(50),
 		});
 
 		for await (const part of result.fullStream) {

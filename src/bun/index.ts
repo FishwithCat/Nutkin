@@ -4,6 +4,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { ModelMessage } from "ai";
 import { runAgent } from "./agent";
+import { removeSessionSandboxes, stopAllSandboxes } from "./sandbox";
 import type { AgentRPC, PersistedTask } from "../shared/rpc";
 
 // Persisted conversations live in the per-user app data dir.
@@ -24,6 +25,7 @@ const upsertTask = db.query(
 const selectTasks = db.query<{ id: string; title: string; data: string }, []>(
 	"SELECT id, title, data FROM tasks ORDER BY updated_at DESC",
 );
+const deleteTaskRow = db.query("DELETE FROM tasks WHERE id = $id");
 
 const DEV_SERVER_PORT = 5173;
 const DEV_SERVER_URL = `http://localhost:${DEV_SERVER_PORT}`;
@@ -68,9 +70,14 @@ const rpc = BrowserView.defineRPC<AgentRPC>({
 					$now: Date.now(),
 				});
 			},
-			userMessage: ({ assistantId, messages }) => {
+			deleteTask: (id) => {
+				deleteTaskRow.run({ $id: id });
+				// Tear down the chat's sandboxes (rootfs included) — fire and forget.
+				void removeSessionSandboxes(id);
+			},
+			userMessage: ({ assistantId, sessionId, messages }) => {
 				const modelMessages = messages as ModelMessage[];
-				void runAgent(modelMessages, {
+				void runAgent(sessionId, modelMessages, {
 					onText: (text) => rpc.send.assistantDelta({ id: assistantId, text }),
 					onReasoning: (text) =>
 						rpc.send.assistantReasoning({ id: assistantId, text }),
@@ -104,5 +111,13 @@ const mainWindow = new BrowserWindow({
 
 // Open maximized so the window fills the screen by default
 mainWindow.maximize();
+
+// ponytail: best-effort sandbox cleanup on signals. Ceiling: a hard SIGKILL can
+// orphan microVM child processes — add an Electrobun quit hook if that bites.
+for (const sig of ["SIGINT", "SIGTERM"] as const) {
+	process.on(sig, () => {
+		void stopAllSandboxes().finally(() => process.exit(0));
+	});
+}
 
 console.log("DeepSeek Agent app started!");

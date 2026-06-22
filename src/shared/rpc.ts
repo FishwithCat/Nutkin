@@ -66,10 +66,14 @@ export type AgentRPC = {
 			userMessage: {
 				/** Id of the assistant turn this request should stream into. */
 				assistantId: string;
+				/** Conversation id; scopes the agent's sandboxes to this session. */
+				sessionId: string;
 				messages: ChatMessage[];
 			};
 			/** Upsert a conversation snapshot. */
 			saveTask: PersistedTask;
+			/** Delete a conversation and remove its sandboxes. Payload is the task id. */
+			deleteTask: string;
 		};
 	}>;
 	// Messages the webview receives (sent by the Bun process).
