@@ -6,6 +6,7 @@ import {
 	Calculator,
 	Check,
 	ChevronRight,
+	CircleX,
 	Clock,
 	List,
 	Loader2,
@@ -60,6 +61,18 @@ function makeId() {
 function deriveTitle(text: string) {
 	const trimmed = text.trim().replace(/\s+/g, " ");
 	return trimmed.length > 30 ? `${trimmed.slice(0, 30)}…` : trimmed;
+}
+
+// Three outcomes for a finished tool: it was aborted (turn cancelled
+// mid-execution, marked with the "已中止" error), it failed (threw any other
+// error, or a runCommand exited non-zero), or it succeeded.
+function toolOutcome(output: unknown): "success" | "failed" | "aborted" {
+	if (typeof output !== "object" || output === null) return "success";
+	const error = (output as { error?: unknown }).error;
+	if (error === "已中止") return "aborted";
+	if (error !== undefined) return "failed";
+	const code = (output as { code?: unknown }).code;
+	return typeof code === "number" && code !== 0 ? "failed" : "success";
 }
 
 // Fold a single streamed agent event into one message.
@@ -619,13 +632,7 @@ function ToolRow({
 	onToggle: () => void;
 }) {
 	const running = tool.output === undefined;
-	// A tool whose output carries an `error` failed or was aborted — flag it
-	// instead of showing the success check.
-	const failed =
-		!running &&
-		typeof tool.output === "object" &&
-		tool.output !== null &&
-		"error" in tool.output;
+	const outcome = running ? undefined : toolOutcome(tool.output);
 	const { icon: Icon, summary } = toolMeta(tool);
 
 	return (
@@ -649,8 +656,10 @@ function ToolRow({
 							<Loader2 size={13} className="animate-spin" aria-hidden="true" />
 							运行中
 						</span>
-					) : failed ? (
+					) : outcome === "aborted" ? (
 						<Ban size={15} className="text-amber-600" aria-hidden="true" />
+					) : outcome === "failed" ? (
+						<CircleX size={15} className="text-red-600" aria-hidden="true" />
 					) : (
 						<Check size={15} className="text-emerald-600" aria-hidden="true" />
 					)}
