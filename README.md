@@ -56,6 +56,11 @@ React webview  ──userMessage(conversation)──▶  Bun main process
 
 Add a tool by adding an entry to the `tools` object in `src/bun/agent.ts`.
 
+Tool calls are surfaced in the chat under a collapsible **工具调用** panel: one
+compact row per call (icon + name + argument summary + running/done status),
+with history folded and the latest call expanded. New tools get a sensible icon
+and summary automatically (`toolMeta` in `src/mainview/App.tsx`).
+
 ## Sessions
 
 Conversations are stored in `bun:sqlite` so they survive restarts. The webview

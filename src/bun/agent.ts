@@ -192,6 +192,17 @@ export async function runAgent(
 						output: part.output,
 					});
 					break;
+				case "tool-error":
+					// A tool whose execute() threw (e.g. a sandbox that was reset, or
+					// the microsandbox server being down) emits tool-error, not
+					// tool-result. Surface it as the call's output so the UI row
+					// completes with the error instead of hanging on "运行中".
+					events.onToolResult({
+						toolCallId: part.toolCallId,
+						toolName: part.toolName,
+						output: { error: stringifyError(part.error) },
+					});
+					break;
 				case "error":
 					events.onError(stringifyError(part.error));
 					break;
