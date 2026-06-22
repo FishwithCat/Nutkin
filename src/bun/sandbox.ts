@@ -82,11 +82,15 @@ async function ensure(sessionId: string, name: string): Promise<Sandbox | null> 
 	return sandbox;
 }
 
+// Backstop so a command that never exits can't hang the tool call forever.
+const DEFAULT_TIMEOUT_MS = 120_000;
+
 export async function runCommand(
 	sessionId: string,
 	name: string,
 	command: string,
 	args: string[] = [],
+	timeoutMs = DEFAULT_TIMEOUT_MS,
 ) {
 	const sandbox = await ensure(sessionId, name);
 	if (!sandbox) {
@@ -94,7 +98,13 @@ export async function runCommand(
 			error: `No sandbox named "${name}" in this session. Create one with createSandbox first.`,
 		};
 	}
-	const out = await sandbox.exec(command, args);
+	// Run through the VM's shell so "uname -a", pipes, and && parse correctly —
+	// exec() treats the whole string as one executable name and hangs if it's
+	// not a real file. The timeout kills a runaway process instead of blocking.
+	const script = [command, ...args].join(" ");
+	const out = await sandbox.execWith("sh", (b) =>
+		b.args(["-c", script]).timeout(timeoutMs),
+	);
 	return {
 		stdout: cap(out.stdout()),
 		stderr: cap(out.stderr()),

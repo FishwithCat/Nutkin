@@ -103,14 +103,20 @@ function sandboxTools(sessionId: string) {
 					.string()
 					.optional()
 					.describe("Which sandbox to run in. Defaults to 'default'."),
-				command: z.string().describe("The executable to run, e.g. 'sh', 'ls', 'python'."),
+				command: z
+					.string()
+					.describe("The command line to run, e.g. 'uname -a' or 'ls /tmp'. Runs via sh -c."),
 				args: z
 					.array(z.string())
 					.optional()
-					.describe("Arguments, e.g. ['-c', 'echo hi']."),
+					.describe("Extra arguments appended to the command (optional)."),
+				timeoutMs: z
+					.number()
+					.optional()
+					.describe("Kill the command if it runs longer than this many ms. Defaults to 120000."),
 			}),
-			execute: ({ name = "default", command, args = [] }) =>
-				runCommand(sessionId, name, command, args),
+			execute: ({ name = "default", command, args = [], timeoutMs }) =>
+				runCommand(sessionId, name, command, args, timeoutMs),
 		}),
 		stopSandbox: tool({
 			description:
