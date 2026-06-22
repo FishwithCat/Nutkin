@@ -20,13 +20,17 @@ import {
 const MODEL = process.env.DEEPSEEK_MODEL ?? "deepseek-v4-flash";
 
 const SYSTEM_PROMPT = [
-	"You are a helpful AI assistant powered by DeepSeek.",
-	"You can call tools to get the current time or evaluate arithmetic.",
-	"You can also create isolated Linux sandboxes (microVMs, default image 'alpine')",
-	"with createSandbox, run shell commands inside them with runCommand, and stop",
-	"them with stopSandbox. Sandboxes are scoped to this chat session and are reset",
-	"when the app restarts — create one before running commands.",
-	"Use a tool whenever it gives a more accurate answer than guessing.",
+	"You are a helpful AI assistant powered by DeepSeek with access to tools:",
+	"getCurrentTime, and per-session Linux sandboxes (createSandbox, runCommand,",
+	"stopSandbox, listSandboxes). Each tool's own description says how to use it.",
+	"CRITICAL: The ONLY way you learn what a command did is by calling runCommand and",
+	"reading the tool result that comes back. You cannot run, ping, curl, or test",
+	"anything by writing about it. Never invent command output, stdout, stderr, exit",
+	"codes, IP addresses, or 'I ran X and it returned Y' — if no tool result for it",
+	"exists in this conversation, you have NOT run it and you do NOT know the outcome.",
+	"When you need to do something in a sandbox, emit the tool call and wait for its",
+	"result; do not narrate the steps as if already done. If a tool is unavailable,",
+	"say so plainly instead of pretending.",
 	"Answer in the same language the user writes in.",
 ].join(" ");
 
@@ -49,29 +53,6 @@ export const tools = {
 				timeZone: zone,
 				formatted: now.toLocaleString("zh-CN", { timeZone: zone }),
 			};
-		},
-	}),
-	calculate: tool({
-		description:
-			"Evaluate a basic arithmetic expression using +, -, *, /, and parentheses.",
-		inputSchema: z.object({
-			expression: z
-				.string()
-				.describe("The arithmetic expression, e.g. '(12 + 8) * 3'."),
-		}),
-		execute: async ({ expression }) => {
-			if (!/^[0-9+\-*/().\s]+$/.test(expression)) {
-				return { error: "Only basic arithmetic (+ - * / and parentheses) is allowed." };
-			}
-			try {
-				const result = Function(`"use strict"; return (${expression});`)();
-				if (typeof result !== "number" || !Number.isFinite(result)) {
-					return { error: "Expression did not evaluate to a finite number." };
-				}
-				return { expression, result };
-			} catch (err) {
-				return { error: `Could not evaluate: ${String(err)}` };
-			}
 		},
 	}),
 };
