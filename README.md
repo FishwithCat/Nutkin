@@ -3,7 +3,8 @@
 A minimal desktop AI agent: an Electrobun app (React + Tailwind + Vite HMR) whose
 Bun main process runs a [Vercel AI SDK](https://github.com/vercel/ai) agent backed
 by DeepSeek. The agent can call tools (current time, calculator) in a multi-step
-loop, and the result streams live into the chat UI.
+loop, and the result streams live into the chat UI. Conversations persist
+across restarts in a local SQLite database.
 
 ## Setup
 
@@ -54,6 +55,14 @@ React webview  ──userMessage(conversation)──▶  Bun main process
 - `src/mainview/rpc.ts` + `src/mainview/App.tsx` — RPC client and chat UI.
 
 Add a tool by adding an entry to the `tools` object in `src/bun/agent.ts`.
+
+## Sessions
+
+Conversations are stored in `bun:sqlite` so they survive restarts. The webview
+ships each finished task to the Bun process (`saveTask`) and loads them on
+startup (`loadTasks`); the agent itself stays stateless. The database lives at
+`<userData>/sessions.db` (macOS: `~/Library/Application Support/<id>/<channel>/`),
+one row per conversation with the messages as a JSON blob.
 
 ## How HMR Works
 

@@ -1,7 +1,29 @@
-import { BrowserView, BrowserWindow, Updater } from "electrobun/bun";
+import { BrowserView, BrowserWindow, Updater, Utils } from "electrobun/bun";
+import { Database } from "bun:sqlite";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import type { ModelMessage } from "ai";
 import { runAgent } from "./agent";
-import type { AgentRPC } from "../shared/rpc";
+import type { AgentRPC, PersistedTask } from "../shared/rpc";
+
+// Persisted conversations live in the per-user app data dir.
+mkdirSync(Utils.paths.userData, { recursive: true });
+const db = new Database(join(Utils.paths.userData, "sessions.db"));
+db.run(
+	`CREATE TABLE IF NOT EXISTS tasks (
+		id         TEXT PRIMARY KEY,
+		title      TEXT NOT NULL,
+		data       TEXT NOT NULL,
+		updated_at INTEGER NOT NULL
+	)`,
+);
+const upsertTask = db.query(
+	`INSERT INTO tasks (id, title, data, updated_at) VALUES ($id, $title, $data, $now)
+	 ON CONFLICT(id) DO UPDATE SET title = $title, data = $data, updated_at = $now`,
+);
+const selectTasks = db.query<{ id: string; title: string; data: string }, []>(
+	"SELECT id, title, data FROM tasks ORDER BY updated_at DESC",
+);
 
 const DEV_SERVER_PORT = 5173;
 const DEV_SERVER_URL = `http://localhost:${DEV_SERVER_PORT}`;
@@ -29,7 +51,23 @@ const rpc = BrowserView.defineRPC<AgentRPC>({
 	// Agent turns can run for a while, so never time these out.
 	maxRequestTime: Infinity,
 	handlers: {
+		requests: {
+			loadTasks: (): PersistedTask[] =>
+				selectTasks.all().map((row) => ({
+					id: row.id,
+					title: row.title,
+					messages: JSON.parse(row.data),
+				})),
+		},
 		messages: {
+			saveTask: (task) => {
+				upsertTask.run({
+					$id: task.id,
+					$title: task.title,
+					$data: JSON.stringify(task.messages),
+					$now: Date.now(),
+				});
+			},
 			userMessage: ({ assistantId, messages }) => {
 				const modelMessages = messages as ModelMessage[];
 				void runAgent(modelMessages, {

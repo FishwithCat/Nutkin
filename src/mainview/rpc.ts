@@ -4,6 +4,7 @@ import { Electroview } from "electrobun/view";
 import type {
 	AgentRPC,
 	ChatMessage,
+	PersistedTask,
 	ToolCallInfo,
 	ToolResultInfo,
 } from "../shared/rpc";
@@ -52,4 +53,14 @@ new Electroview({ rpc });
 /** Send the full conversation to the agent and stream the reply into `assistantId`. */
 export function sendUserMessage(assistantId: string, messages: ChatMessage[]) {
 	rpc.send.userMessage({ assistantId, messages });
+}
+
+/** Load all stored conversations, newest first. */
+export function loadTasks(): Promise<PersistedTask[]> {
+	return rpc.request.loadTasks();
+}
+
+/** Persist a conversation snapshot. */
+export function saveTask(task: PersistedTask) {
+	rpc.send.saveTask(task);
 }

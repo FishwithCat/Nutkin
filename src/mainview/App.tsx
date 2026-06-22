@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { ChatMessage } from "../shared/rpc";
-import { sendUserMessage, subscribe } from "./rpc";
+import type { ChatMessage, PersistedTask } from "../shared/rpc";
+import { loadTasks, saveTask, sendUserMessage, subscribe } from "./rpc";
 import type { AgentEvent } from "./rpc";
 
 interface ToolEvent {
@@ -75,13 +75,62 @@ function applyEvent(m: UIMessage, event: AgentEvent): UIMessage {
 	}
 }
 
+// Drop runtime-only flags before persisting.
+function toPersisted(task: Task): PersistedTask {
+	return {
+		id: task.id,
+		title: task.title,
+		messages: task.messages.map((m) => ({
+			id: m.id,
+			role: m.role,
+			content: m.content,
+			reasoning: m.reasoning,
+			tools: m.tools,
+			error: m.error,
+		})),
+	};
+}
+
+// Restore a stored conversation, re-adding runtime flags as idle.
+function fromPersisted(task: PersistedTask): Task {
+	return {
+		id: task.id,
+		title: task.title,
+		busy: false,
+		messages: task.messages.map((m) => ({ ...m, pending: false })),
+	};
+}
+
 function App() {
 	const [tasks, setTasks] = useState<Task[]>([]);
 	const [activeId, setActiveId] = useState<string | null>(null);
 	const [input, setInput] = useState("");
 	const scrollRef = useRef<HTMLDivElement>(null);
+	const savedRef = useRef<Map<string, string>>(new Map());
 
 	const activeTask = tasks.find((t) => t.id === activeId) ?? null;
+
+	// Load persisted conversations once on mount.
+	useEffect(() => {
+		loadTasks().then((stored) => {
+			for (const t of stored) savedRef.current.set(t.id, JSON.stringify(t));
+			setTasks(stored.map(fromPersisted));
+		});
+	}, []);
+
+	// Persist idle tasks whose content changed. Busy tasks are skipped — their
+	// completed turn is saved when the stream ends (busy flips false).
+	// ponytail: 串流中途崩溃会丢未完成轮次；需要再改成 debounce 中途保存。
+	useEffect(() => {
+		for (const task of tasks) {
+			if (task.busy) continue;
+			const persisted = toPersisted(task);
+			const serialized = JSON.stringify(persisted);
+			if (savedRef.current.get(task.id) === serialized) continue;
+			savedRef.current.set(task.id, serialized);
+			saveTask(persisted);
+		}
+	}, [tasks]);
 
 	// Subscribe once; route each event to the task that owns the target message.
 	useEffect(() => {

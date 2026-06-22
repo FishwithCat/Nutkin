@@ -31,15 +31,45 @@ export interface ToolResultInfo {
 	output: unknown;
 }
 
+// Persisted shape of a conversation — what the webview ships to the Bun process
+// to store in sqlite, minus runtime-only flags (busy/pending).
+export interface PersistedTool {
+	toolCallId: string;
+	toolName: string;
+	input?: unknown;
+	output?: unknown;
+}
+
+export interface PersistedMessage {
+	id: string;
+	role: "user" | "assistant";
+	content: string;
+	reasoning: string;
+	tools: PersistedTool[];
+	error?: string;
+}
+
+export interface PersistedTask {
+	id: string;
+	title: string;
+	messages: PersistedMessage[];
+}
+
 export type AgentRPC = {
 	// Messages the Bun process receives (sent by the webview).
 	bun: RPCSchema<{
+		requests: {
+			/** Load all stored conversations, newest first. */
+			loadTasks: { params: undefined; response: PersistedTask[] };
+		};
 		messages: {
 			userMessage: {
 				/** Id of the assistant turn this request should stream into. */
 				assistantId: string;
 				messages: ChatMessage[];
 			};
+			/** Upsert a conversation snapshot. */
+			saveTask: PersistedTask;
 		};
 	}>;
 	// Messages the webview receives (sent by the Bun process).
