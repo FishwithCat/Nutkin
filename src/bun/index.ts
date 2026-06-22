@@ -1,4 +1,10 @@
-import { BrowserView, BrowserWindow, Updater, Utils } from "electrobun/bun";
+import {
+	ApplicationMenu,
+	BrowserView,
+	BrowserWindow,
+	Updater,
+	Utils,
+} from "electrobun/bun";
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -111,6 +117,35 @@ const mainWindow = new BrowserWindow({
 
 // Open maximized so the window fills the screen by default
 mainWindow.maximize();
+
+// Without an Edit menu, macOS WKWebView never receives the standard
+// copy/cut/paste/select-all key equivalents. The roles map to NSResponder
+// selectors, so CMD+C/V/X/A start working in the input box.
+// macOS treats the FIRST top-level menu as the app menu, so Edit must come
+// second or its key equivalents never install as a real Edit menu.
+ApplicationMenu.setApplicationMenu([
+	{
+		label: "Nutkin",
+		submenu: [
+			{ role: "about" },
+			{ type: "divider" },
+			{ role: "hide", accelerator: "CmdOrCtrl+H" },
+			{ role: "quit", accelerator: "CmdOrCtrl+Q" },
+		],
+	},
+	{
+		label: "Edit",
+		submenu: [
+			{ role: "undo", accelerator: "CmdOrCtrl+Z" },
+			{ role: "redo", accelerator: "CmdOrCtrl+Shift+Z" },
+			{ type: "divider" },
+			{ role: "cut", accelerator: "CmdOrCtrl+X" },
+			{ role: "copy", accelerator: "CmdOrCtrl+C" },
+			{ role: "paste", accelerator: "CmdOrCtrl+V" },
+			{ role: "selectAll", accelerator: "CmdOrCtrl+A" },
+		],
+	},
+]);
 
 // ponytail: best-effort sandbox cleanup on signals. Ceiling: a hard SIGKILL can
 // orphan microVM child processes — add an Electrobun quit hook if that bites.

@@ -233,6 +233,10 @@ function App() {
 	}
 
 	function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+		// During IME composition (e.g. Chinese pinyin) Enter confirms the
+		// candidate, not the message. WebKit may clear isComposing before this
+		// keydown but still reports keyCode 229 while the IME owns the key.
+		if (e.nativeEvent.isComposing || e.keyCode === 229) return;
 		if (e.key === "Enter" && !e.shiftKey) {
 			e.preventDefault();
 			send();
