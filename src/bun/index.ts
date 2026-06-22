@@ -33,6 +33,9 @@ const selectTasks = db.query<{ id: string; title: string; data: string }, []>(
 );
 const deleteTaskRow = db.query("DELETE FROM tasks WHERE id = $id");
 
+// In-flight agent turns, keyed by assistantId, so the webview can abort them.
+const running = new Map<string, AbortController>();
+
 const DEV_SERVER_PORT = 5173;
 const DEV_SERVER_URL = `http://localhost:${DEV_SERVER_PORT}`;
 
@@ -83,19 +86,30 @@ const rpc = BrowserView.defineRPC<AgentRPC>({
 			},
 			userMessage: ({ assistantId, sessionId, messages }) => {
 				const modelMessages = messages as ModelMessage[];
-				void runAgent(sessionId, modelMessages, {
-					onText: (text) => rpc.send.assistantDelta({ id: assistantId, text }),
-					onReasoning: (text) =>
-						rpc.send.assistantReasoning({ id: assistantId, text }),
-					onToolCall: (call) =>
-						rpc.send.toolCall({ id: assistantId, ...call }),
-					onToolResult: (result) =>
-						rpc.send.toolResult({ id: assistantId, ...result }),
-					onError: (message) =>
-						rpc.send.assistantError({ id: assistantId, message }),
-					onDone: () => rpc.send.assistantDone({ id: assistantId }),
-				});
+				const controller = new AbortController();
+				running.set(assistantId, controller);
+				void runAgent(
+					sessionId,
+					modelMessages,
+					{
+						onText: (text) => rpc.send.assistantDelta({ id: assistantId, text }),
+						onReasoning: (text) =>
+							rpc.send.assistantReasoning({ id: assistantId, text }),
+						onToolCall: (call) =>
+							rpc.send.toolCall({ id: assistantId, ...call }),
+						onToolResult: (result) =>
+							rpc.send.toolResult({ id: assistantId, ...result }),
+						onError: (message) =>
+							rpc.send.assistantError({ id: assistantId, message }),
+						onDone: () => {
+							running.delete(assistantId);
+							rpc.send.assistantDone({ id: assistantId });
+						},
+					},
+					controller.signal,
+				);
 			},
+			abortTurn: (assistantId) => running.get(assistantId)?.abort(),
 		},
 	},
 });

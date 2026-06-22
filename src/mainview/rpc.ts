@@ -59,6 +59,11 @@ export function sendUserMessage(
 	rpc.send.userMessage({ assistantId, sessionId, messages });
 }
 
+/** Abort the in-flight agent turn streaming into `assistantId`. */
+export function abortTurn(assistantId: string) {
+	rpc.send.abortTurn(assistantId);
+}
+
 /** Load all stored conversations, newest first. */
 export function loadTasks(): Promise<PersistedTask[]> {
 	return rpc.request.loadTasks();

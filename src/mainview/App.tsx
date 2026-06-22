@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
 	ArrowUp,
+	Ban,
 	Box,
 	Calculator,
 	Check,
@@ -17,6 +18,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import type { ChatMessage, PersistedTask } from "../shared/rpc";
 import {
+	abortTurn,
 	deleteTask,
 	loadTasks,
 	saveTask,
@@ -68,7 +70,15 @@ function applyEvent(m: UIMessage, event: AgentEvent): UIMessage {
 		case "reasoning":
 			return { ...m, reasoning: m.reasoning + event.text };
 		case "done":
-			return { ...m, pending: false };
+			// Close out any tool calls left without a result (e.g. the turn was
+			// aborted mid-execution) so their rows stop showing "运行中".
+			return {
+				...m,
+				pending: false,
+				tools: m.tools.map((t) =>
+					t.output === undefined ? { ...t, output: { error: "已中止" } } : t,
+				),
+			};
 		case "error":
 			return { ...m, pending: false, error: event.message };
 		case "toolCall":
@@ -243,6 +253,16 @@ function App() {
 		sendUserMessage(assistantId, activeTask.id, history);
 	}
 
+	// Stop the active task's in-flight turn. The backend's onDone flips busy
+	// false once the abort propagates; the partial reply already streamed stays.
+	function abort() {
+		if (!activeTask?.busy) return;
+		const pending = activeTask.messages.find(
+			(m) => m.role === "assistant" && m.pending,
+		);
+		if (pending) abortTurn(pending.id);
+	}
+
 	function newTask() {
 		setActiveId(null);
 		setInput("");
@@ -299,6 +319,7 @@ function App() {
 						setInput={setInput}
 						onKeyDown={onKeyDown}
 						onSend={send}
+						onAbort={abort}
 						busy={activeTask?.busy ?? false}
 					/>
 				</main>
@@ -598,6 +619,13 @@ function ToolRow({
 	onToggle: () => void;
 }) {
 	const running = tool.output === undefined;
+	// A tool whose output carries an `error` failed or was aborted — flag it
+	// instead of showing the success check.
+	const failed =
+		!running &&
+		typeof tool.output === "object" &&
+		tool.output !== null &&
+		"error" in tool.output;
 	const { icon: Icon, summary } = toolMeta(tool);
 
 	return (
@@ -621,6 +649,8 @@ function ToolRow({
 							<Loader2 size={13} className="animate-spin" aria-hidden="true" />
 							运行中
 						</span>
+					) : failed ? (
+						<Ban size={15} className="text-amber-600" aria-hidden="true" />
 					) : (
 						<Check size={15} className="text-emerald-600" aria-hidden="true" />
 					)}
@@ -650,12 +680,14 @@ function Composer({
 	setInput,
 	onKeyDown,
 	onSend,
+	onAbort,
 	busy,
 }: {
 	input: string;
 	setInput: (v: string) => void;
 	onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
 	onSend: () => void;
+	onAbort: () => void;
 	busy: boolean;
 }) {
 	return (
@@ -670,19 +702,26 @@ function Composer({
 						placeholder="让 Agent 继续做点什么…"
 						className="flex-1 resize-none bg-transparent outline-none text-sm text-stone-800 placeholder:text-stone-400 max-h-40 py-1.5"
 					/>
-					<button
-						type="button"
-						onClick={onSend}
-						disabled={busy || input.trim().length === 0}
-						className="shrink-0 w-9 h-9 rounded-xl bg-clay-500 text-white flex items-center justify-center hover:bg-clay-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-						title="发送"
-					>
-						{busy ? (
-							<span className="text-sm">…</span>
-						) : (
+					{busy ? (
+						<button
+							type="button"
+							onClick={onAbort}
+							className="shrink-0 w-9 h-9 rounded-xl bg-clay-500 text-white flex items-center justify-center hover:bg-clay-600 transition-colors"
+							title="中止"
+						>
+							<Square size={16} aria-hidden="true" />
+						</button>
+					) : (
+						<button
+							type="button"
+							onClick={onSend}
+							disabled={input.trim().length === 0}
+							className="shrink-0 w-9 h-9 rounded-xl bg-clay-500 text-white flex items-center justify-center hover:bg-clay-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+							title="发送"
+						>
 							<ArrowUp size={18} aria-hidden="true" />
-						)}
-					</button>
+						</button>
+					)}
 				</div>
 			</div>
 		</div>

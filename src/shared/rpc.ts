@@ -74,6 +74,8 @@ export type AgentRPC = {
 			saveTask: PersistedTask;
 			/** Delete a conversation and remove its sandboxes. Payload is the task id. */
 			deleteTask: string;
+			/** Abort an in-flight agent turn. Payload is the assistantId. */
+			abortTurn: string;
 		};
 	}>;
 	// Messages the webview receives (sent by the Bun process).

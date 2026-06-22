@@ -91,6 +91,7 @@ export async function runCommand(
 	command: string,
 	args: string[] = [],
 	timeoutMs = DEFAULT_TIMEOUT_MS,
+	signal?: AbortSignal,
 ) {
 	const sandbox = await ensure(sessionId, name);
 	if (!sandbox) {
@@ -102,14 +103,32 @@ export async function runCommand(
 	// exec() treats the whole string as one executable name and hangs if it's
 	// not a real file. The timeout kills a runaway process instead of blocking.
 	const script = [command, ...args].join(" ");
-	const out = await sandbox.execWith("sh", (b) =>
+	const exec = sandbox.execWith("sh", (b) =>
 		b.args(["-c", script]).timeout(timeoutMs),
 	);
+	// Race against the abort so clicking 中止 returns at once instead of waiting
+	// for the command to finish. ponytail: the VM process keeps running until its
+	// own timeout — wire microsandbox cancellation in if that resource use bites.
+	if (signal) exec.catch(() => {}); // if abort wins the race, don't leak a rejection
+	const out = signal ? await Promise.race([exec, rejectOnAbort(signal)]) : await exec;
 	return {
 		stdout: cap(out.stdout()),
 		stderr: cap(out.stderr()),
 		code: out.code,
 	};
+}
+
+// A promise that rejects when the signal aborts, so it can lose a Promise.race
+// against a long-running exec.
+function rejectOnAbort(signal: AbortSignal): Promise<never> {
+	if (signal.aborted) return Promise.reject(new DOMException("Aborted", "AbortError"));
+	return new Promise((_, reject) => {
+		signal.addEventListener(
+			"abort",
+			() => reject(new DOMException("Aborted", "AbortError")),
+			{ once: true },
+		);
+	});
 }
 
 // Stop (pause) a sandbox. Its rootfs is preserved on disk, so a later

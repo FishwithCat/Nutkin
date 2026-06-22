@@ -115,8 +115,8 @@ function sandboxTools(sessionId: string) {
 					.optional()
 					.describe("Kill the command if it runs longer than this many ms. Defaults to 120000."),
 			}),
-			execute: ({ name = "default", command, args = [], timeoutMs }) =>
-				runCommand(sessionId, name, command, args, timeoutMs),
+			execute: ({ name = "default", command, args = [], timeoutMs }, { abortSignal }) =>
+				runCommand(sessionId, name, command, args, timeoutMs, abortSignal),
 		}),
 		stopSandbox: tool({
 			description:
@@ -156,6 +156,7 @@ export async function runAgent(
 	sessionId: string,
 	messages: ModelMessage[],
 	events: AgentEvents,
+	signal?: AbortSignal,
 ): Promise<void> {
 	if (!process.env.DEEPSEEK_API_KEY) {
 		events.onError(
@@ -174,6 +175,7 @@ export async function runAgent(
 			// The agentic loop: keep taking steps (model call -> tool calls ->
 			// model call ...) until the model stops or we hit 50 steps.
 			stopWhen: stepCountIs(50),
+			abortSignal: signal,
 		});
 
 		for await (const part of result.fullStream) {
@@ -217,7 +219,9 @@ export async function runAgent(
 			}
 		}
 	} catch (err) {
-		events.onError(stringifyError(err));
+		// A user-initiated abort isn't an error — just stop, leaving whatever
+		// partial output already streamed.
+		if (!signal?.aborted) events.onError(stringifyError(err));
 	} finally {
 		events.onDone();
 	}

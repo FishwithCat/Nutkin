@@ -45,7 +45,12 @@ React webview  ──userMessage(conversation)──▶  Bun main process
        │                                    stopWhen: stepCountIs(8)
        │                                              │  (DeepSeek)
        └──assistantDelta / toolCall / toolResult / done──┘
+                          (abortTurn ──▶ stops the run)
 ```
+
+While a turn is running the send button becomes a **中止** (stop) button;
+clicking it sends `abortTurn(assistantId)`, which aborts the `streamText`
+run via an `AbortController`. Whatever already streamed stays in the chat.
 
 - `src/bun/agent.ts` — the agent: DeepSeek model, tool definitions, and the
   multi-step `streamText` loop. The API key lives only here.
