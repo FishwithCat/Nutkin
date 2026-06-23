@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ChatMessage } from "../shared/rpc";
 import {
 	abortTurn,
@@ -30,6 +30,11 @@ function App() {
 	const [input, setInput] = useState("");
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const savedRef = useRef<Map<string, string>>(new Map());
+	// Whether the view should keep following new content. Updated on every scroll
+	// so we know — *before* the next update grows the container — if the user was
+	// sitting at the bottom. Measuring after the update can't tell "user is at the
+	// bottom" from "a tall chunk just arrived", which is what broke auto-follow.
+	const stickRef = useRef(true);
 
 	const activeTask = tasks.find((t) => t.id === activeId) ?? null;
 
@@ -78,27 +83,35 @@ function App() {
 		};
 	}, []);
 
+	// Re-evaluate "is the user at the bottom" on every scroll. Our own programmatic
+	// jumps land at the bottom too, so they just keep the flag true.
+	function onScroll() {
+		const el = scrollRef.current;
+		if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 64;
+	}
+
 	// Opening a conversation lands at its latest message.
-	useEffect(() => {
+	useLayoutEffect(() => {
+		stickRef.current = true;
 		const el = scrollRef.current;
 		if (el) el.scrollTop = el.scrollHeight;
 	}, [activeId]);
 
-	// While streaming, only follow new content if the user is already near the
-	// bottom — so scrolling up to read history isn't yanked back down, and the
-	// instant scrollTop assignment avoids the per-frame scrollHeight churn that
-	// Markdown re-layout would otherwise turn into visible jitter.
-	useEffect(() => {
+	// Follow new content only while stuck to the bottom, so scrolling up to read
+	// history isn't yanked back down. useLayoutEffect runs before paint, so the
+	// jump is applied in the same frame as the new content — no visible jitter.
+	useLayoutEffect(() => {
 		const el = scrollRef.current;
-		if (!el) return;
-		if (el.scrollHeight - el.scrollTop - el.clientHeight < 120) {
-			el.scrollTop = el.scrollHeight;
-		}
+		if (el && stickRef.current) el.scrollTop = el.scrollHeight;
 	}, [activeTask?.messages]);
 
 	function send() {
 		const text = input.trim();
 		if (!text || activeTask?.busy) return;
+
+		// Sending always pulls the view down to the new turn, even if the user had
+		// scrolled up into history.
+		stickRef.current = true;
 
 		const userMsg: UIMessage = {
 			id: makeId(),
@@ -201,7 +214,11 @@ function App() {
 				<main className="flex-1 flex flex-col min-w-0">
 					{activeTask && <TaskHeader task={activeTask} />}
 
-					<div ref={scrollRef} className="flex-1 overflow-y-auto">
+					<div
+						ref={scrollRef}
+						onScroll={onScroll}
+						className="flex-1 overflow-y-auto"
+					>
 						<div className="w-full px-6 py-6 space-y-4">
 							{activeTask ? (
 								activeTask.messages.map((m) => (
