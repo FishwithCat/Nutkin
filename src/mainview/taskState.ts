@@ -29,7 +29,9 @@ export function applyEvent(m: UIMessage, event: AgentEvent): UIMessage {
 				...m,
 				pending: false,
 				tools: m.tools.map((t) =>
-					t.output === undefined ? { ...t, output: { error: "已中止" } } : t,
+					t.output === undefined
+						? { ...t, output: { error: "已中止" }, endedAt: Date.now() }
+						: t,
 				),
 			};
 		case "error":
@@ -43,6 +45,7 @@ export function applyEvent(m: UIMessage, event: AgentEvent): UIMessage {
 						toolCallId: event.call.toolCallId,
 						toolName: event.call.toolName,
 						input: event.call.input,
+						startedAt: Date.now(),
 					},
 				],
 			};
@@ -51,7 +54,7 @@ export function applyEvent(m: UIMessage, event: AgentEvent): UIMessage {
 				...m,
 				tools: m.tools.map((t) =>
 					t.toolCallId === event.result.toolCallId
-						? { ...t, output: event.result.output }
+						? { ...t, output: event.result.output, endedAt: Date.now() }
 						: t,
 				),
 			};

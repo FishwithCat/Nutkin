@@ -38,6 +38,8 @@ export interface PersistedTool {
 	toolName: string;
 	input?: unknown;
 	output?: unknown;
+	startedAt?: number;
+	endedAt?: number;
 }
 
 export interface PersistedMessage {

@@ -6,6 +6,10 @@ export interface ToolEvent {
 	toolName: string;
 	input?: unknown;
 	output?: unknown;
+	// Wall-clock timestamps (ms) for how long the call took: set when the call is
+	// streamed in and when its result (or abort) lands.
+	startedAt?: number;
+	endedAt?: number;
 }
 
 export interface UIMessage {

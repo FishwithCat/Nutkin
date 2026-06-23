@@ -68,97 +68,185 @@ function toolMeta(tool: ToolEvent): { icon: LucideIcon; summary: string } {
 	}
 }
 
-// One bordered panel grouping every tool call in a turn. History stays folded;
-// the latest (or any still-running) call is expanded by default.
+// Human-readable elapsed time for a span in ms: sub-second as "320ms", longer
+// as "1.2s". Returns "" when either timestamp is missing (e.g. older persisted
+// calls recorded before timing was tracked).
+function formatDuration(ms: number | undefined): string {
+	if (ms === undefined || ms < 0) return "";
+	return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
+}
+
+// Per-call elapsed time, or undefined if it wasn't recorded.
+function elapsed(tool: ToolEvent): number | undefined {
+	if (tool.startedAt === undefined || tool.endedAt === undefined) return undefined;
+	return tool.endedAt - tool.startedAt;
+}
+
+// Wall-clock span covering a batch of finished calls: from the first start to
+// the last end. Undefined if no call carries timing.
+function totalDuration(tools: ToolEvent[]): number | undefined {
+	const starts = tools.map((t) => t.startedAt).filter((n): n is number => n !== undefined);
+	const ends = tools.map((t) => t.endedAt).filter((n): n is number => n !== undefined);
+	if (starts.length === 0 || ends.length === 0) return undefined;
+	return Math.max(...ends) - Math.min(...starts);
+}
+
+// A turn's tool calls in a fixed-height layout that never reflows as calls
+// finish: a collapsed summary line on top (aggregate count/status, expandable to
+// the full history) and one constant-height "live" row below spotlighting the
+// most recent call. When a call completes nothing is added or removed — the live
+// row swaps its spinner for a ✓ and its "运行中" for a duration in place, and the
+// summary's status text updates — so streaming never shifts the layout.
 export function ToolPanel({ tools }: { tools: ToolEvent[] }) {
-	// Per-row open overrides. A row with no override falls back to "is the latest
-	// call", so history stays folded and the newest auto-expands — but any number
-	// of rows can be toggled open independently.
-	const [open, setOpen] = useState<Record<string, boolean>>({});
-	const lastId = tools[tools.length - 1]?.toolCallId;
+	const running = tools.filter((t) => t.output === undefined);
+	// Spotlight the latest still-running call, or — when idle — the last call
+	// that ran, so the live row keeps its height instead of vanishing.
+	const live = running[running.length - 1] ?? tools[tools.length - 1];
 	return (
 		<div className="rounded-xl border border-stone-200 bg-white overflow-hidden">
-			<div className="flex items-center justify-between px-4 py-2.5 border-b border-stone-100">
-				<div className="flex items-center gap-2">
-					<Wrench size={15} className="text-stone-400" aria-hidden="true" />
-					<span className="text-sm font-medium text-stone-800">工具调用</span>
-					<span className="text-xs text-stone-400">{tools.length}</span>
-				</div>
-				<span className="text-xs text-stone-400">默认折叠历史 · 仅展开最新</span>
-			</div>
-			<div className="divide-y divide-stone-100">
-				{tools.map((t) => {
-					const isOpen = open[t.toolCallId] ?? t.toolCallId === lastId;
-					return (
-						<ToolRow
-							key={t.toolCallId}
-							tool={t}
-							open={isOpen}
-							onToggle={() => setOpen((o) => ({ ...o, [t.toolCallId]: !isOpen }))}
-						/>
-					);
-				})}
-			</div>
+			<Summary tools={tools} />
+			<LiveRow tool={live} bordered />
 		</div>
 	);
 }
 
-function ToolRow({
-	tool,
-	open,
-	onToggle,
-}: {
-	tool: ToolEvent;
-	open: boolean;
-	onToggle: () => void;
-}) {
+// The aggregate summary line. Shows the total count and a status tally over the
+// finished calls; when any have finished it becomes a toggle that expands the
+// full trail. Its height is constant — only the status text changes as calls
+// complete.
+function Summary({ tools }: { tools: ToolEvent[] }) {
+	const [open, setOpen] = useState(false);
+	const done = tools.filter((t) => t.output !== undefined);
+	const ok = done.filter((t) => toolOutcome(t.output) === "success").length;
+	const failed = done.filter((t) => toolOutcome(t.output) === "failed").length;
+	const aborted = done.filter((t) => toolOutcome(t.output) === "aborted").length;
+	const total = formatDuration(totalDuration(done));
+	const expandable = done.length > 0;
+
+	const header = (
+		<>
+			<Wrench size={14} className="shrink-0 text-stone-400" aria-hidden="true" />
+			<span className="text-sm font-medium text-stone-700 shrink-0">工具调用</span>
+			<span className="text-xs text-stone-400 shrink-0">{tools.length}</span>
+			<span className="ml-auto flex items-center gap-2 shrink-0 text-xs">
+				{failed > 0 && (
+					<span className="flex items-center gap-1 text-red-600">
+						<CircleX size={13} aria-hidden="true" />
+						{failed}
+					</span>
+				)}
+				{aborted > 0 && (
+					<span className="flex items-center gap-1 text-amber-600">
+						<Ban size={13} aria-hidden="true" />
+						{aborted}
+					</span>
+				)}
+				{ok > 0 && (
+					<span className="flex items-center gap-1 text-stone-400">
+						<Check size={13} className="text-emerald-600" aria-hidden="true" />
+						{ok} 完成
+					</span>
+				)}
+				{total && <span className="text-stone-400 tabular-nums">· {total}</span>}
+				{expandable && (
+					<ChevronRight
+						size={14}
+						className={`text-stone-400 transition-transform ${open ? "rotate-90" : ""}`}
+						aria-hidden="true"
+					/>
+				)}
+			</span>
+		</>
+	);
+
+	return (
+		<div>
+			{expandable ? (
+				<button
+					type="button"
+					onClick={() => setOpen((v) => !v)}
+					className="w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-stone-50 transition-colors"
+				>
+					{header}
+				</button>
+			) : (
+				<div className="flex items-center gap-2 px-4 py-2.5">{header}</div>
+			)}
+
+			{open && (
+				<div className="border-t border-stone-100 divide-y divide-stone-100">
+					{done.map((t) => (
+						<TrailRow key={t.toolCallId} tool={t} />
+					))}
+				</div>
+			)}
+		</div>
+	);
+}
+
+// The fixed-height live row spotlighting one call. Same single-line height
+// whether it is running (spinner + "运行中") or finished (outcome icon +
+// duration), so a call completing swaps these in place without reflow.
+function LiveRow({ tool, bordered }: { tool: ToolEvent; bordered: boolean }) {
 	const running = tool.output === undefined;
 	const outcome = running ? undefined : toolOutcome(tool.output);
 	const { icon: Icon, summary } = toolMeta(tool);
+	const took = formatDuration(elapsed(tool));
+	return (
+		<div
+			className={`flex items-center gap-2.5 px-4 py-2.5 ${bordered ? "border-t border-stone-100" : ""}`}
+		>
+			{running ? (
+				<Loader2 size={14} className="shrink-0 animate-spin text-clay-500" aria-hidden="true" />
+			) : outcome === "aborted" ? (
+				<Ban size={14} className="shrink-0 text-amber-600" aria-hidden="true" />
+			) : outcome === "failed" ? (
+				<CircleX size={14} className="shrink-0 text-red-600" aria-hidden="true" />
+			) : (
+				<Check size={14} className="shrink-0 text-emerald-600" aria-hidden="true" />
+			)}
+			<Icon size={14} className="shrink-0 text-stone-500" aria-hidden="true" />
+			<span className="text-sm font-medium text-stone-800 shrink-0">{tool.toolName}</span>
+			<span className="min-w-0 flex-1 truncate font-mono text-xs text-stone-400">{summary}</span>
+			<span className="ml-auto shrink-0 text-xs tabular-nums">
+				{running ? <span className="text-clay-500">运行中</span> : <span className="text-stone-400">{took}</span>}
+			</span>
+		</div>
+	);
+}
 
+// One finished call in the expanded trail. Slim by default; clicking reveals a
+// single dim line with its input and output rather than a full terminal block.
+function TrailRow({ tool }: { tool: ToolEvent }) {
+	const [open, setOpen] = useState(false);
+	const outcome = toolOutcome(tool.output);
+	const { icon: Icon, summary } = toolMeta(tool);
+	const took = formatDuration(elapsed(tool));
 	return (
 		<div>
 			<button
 				type="button"
-				onClick={onToggle}
-				className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left hover:bg-stone-50 transition-colors"
+				onClick={() => setOpen((v) => !v)}
+				className="w-full flex items-center gap-2.5 px-4 py-2 pl-8 text-left hover:bg-stone-50 transition-colors"
 			>
-				<ChevronRight
-					size={14}
-					className={`shrink-0 text-stone-400 transition-transform ${open ? "rotate-90" : ""}`}
-					aria-hidden="true"
-				/>
-				<Icon size={15} className="shrink-0 text-stone-500" aria-hidden="true" />
-				<span className="text-sm font-medium text-stone-800 shrink-0">{tool.toolName}</span>
+				<Icon size={14} className="shrink-0 text-stone-400" aria-hidden="true" />
+				<span className="text-sm text-stone-700 shrink-0">{tool.toolName}</span>
 				<span className="text-xs text-stone-400 truncate font-mono">{summary}</span>
-				<span className="ml-auto shrink-0">
-					{running ? (
-						<span className="flex items-center gap-1 text-xs text-clay-500">
-							<Loader2 size={13} className="animate-spin" aria-hidden="true" />
-							运行中
-						</span>
-					) : outcome === "aborted" ? (
-						<Ban size={15} className="text-amber-600" aria-hidden="true" />
+				<span className="ml-auto flex items-center gap-2 shrink-0">
+					{took && <span className="text-xs text-stone-400 tabular-nums">{took}</span>}
+					{outcome === "aborted" ? (
+						<Ban size={14} className="text-amber-600" aria-hidden="true" />
 					) : outcome === "failed" ? (
-						<CircleX size={15} className="text-red-600" aria-hidden="true" />
+						<CircleX size={14} className="text-red-600" aria-hidden="true" />
 					) : (
-						<Check size={15} className="text-emerald-600" aria-hidden="true" />
+						<Check size={14} className="text-emerald-600" aria-hidden="true" />
 					)}
 				</span>
 			</button>
-
 			{open && (
-				<div className="bg-stone-900 px-4 py-3 font-mono text-xs leading-relaxed">
-					<div className="text-stone-400">
-						<span className="text-emerald-400">$</span> {tool.toolName}{" "}
-						<span className="text-stone-500">{summary}</span>
-					</div>
-					<div className="text-stone-300 mt-1 break-all">in: {JSON.stringify(tool.input)}</div>
-					{tool.output !== undefined ? (
-						<div className="text-emerald-400 mt-1 break-all">out: {JSON.stringify(tool.output)}</div>
-					) : (
-						<div className="text-clay-400 mt-1">运行中…</div>
-					)}
+				<div className="px-4 pb-2 pl-8 font-mono text-xs leading-relaxed text-stone-400 space-y-0.5">
+					<div className="break-all">in: {JSON.stringify(tool.input)}</div>
+					<div className="break-all">out: {JSON.stringify(tool.output)}</div>
 				</div>
 			)}
 		</div>
