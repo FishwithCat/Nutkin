@@ -64,6 +64,11 @@ export function abortTurn(assistantId: string) {
 	rpc.send.abortTurn(assistantId);
 }
 
+/** Open a URL in the system default browser. */
+export function openExternal(url: string) {
+	rpc.send.openExternal(url);
+}
+
 /** Load all stored conversations, newest first. */
 export function loadTasks(): Promise<PersistedTask[]> {
 	return rpc.request.loadTasks();

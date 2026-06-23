@@ -66,6 +66,14 @@ compact row per call (icon + name + argument summary + running/done status),
 with history folded and the latest call expanded. New tools get a sensible icon
 and summary automatically (`toolMeta` in `src/mainview/App.tsx`).
 
+Assistant replies are rendered as Markdown (`react-markdown` + `remark-gfm`, so
+GFM tables/task lists/strikethrough work). Elements are restyled to the
+stone/clay palette via the `markdownComponents` map in `src/mainview/App.tsx`;
+code blocks/inline code are themed there too. Links open in the system default
+browser: WKWebView ignores `target="_blank"`, so clicks are routed over RPC
+(`openExternal`) to the Bun process, which calls `Utils.openExternal` after an
+http/https scheme check.
+
 ## Sessions
 
 Conversations are stored in `bun:sqlite` so they survive restarts. The webview

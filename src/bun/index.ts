@@ -110,6 +110,18 @@ const rpc = BrowserView.defineRPC<AgentRPC>({
 				);
 			},
 			abortTurn: (assistantId) => running.get(assistantId)?.abort(),
+			openExternal: (url) => {
+				// Only hand http/https links to the OS — never file://, javascript:,
+				// or other schemes that could come from untrusted agent output.
+				try {
+					const { protocol } = new URL(url);
+					if (protocol === "http:" || protocol === "https:") {
+						Utils.openExternal(url);
+					}
+				} catch {
+					// Ignore malformed URLs.
+				}
+			},
 		},
 	},
 });

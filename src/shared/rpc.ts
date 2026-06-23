@@ -76,6 +76,8 @@ export type AgentRPC = {
 			deleteTask: string;
 			/** Abort an in-flight agent turn. Payload is the assistantId. */
 			abortTurn: string;
+			/** Open a URL in the system default browser. Payload is the URL. */
+			openExternal: string;
 		};
 	}>;
 	// Messages the webview receives (sent by the Bun process).
