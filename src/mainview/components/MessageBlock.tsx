@@ -1,7 +1,31 @@
 import { memo } from "react";
-import type { UIMessage } from "../types";
+import type { ToolEvent, UIMessage } from "../types";
+import { DiffView, fileDiff, type FileDiff } from "./DiffView";
 import { Markdown } from "./Markdown";
 import { ToolPanel } from "./ToolPanel";
+
+// Split a turn's tool calls into ordered segments: each completed file edit
+// becomes its own standalone diff card, while runs of regular calls (and any
+// still-running or errored file edits) are grouped into one tool panel. Keeps
+// diffs visually separate from the tool-call list while preserving chronology.
+type Segment =
+	| { kind: "tools"; key: string; tools: ToolEvent[] }
+	| { kind: "diff"; key: string; diff: FileDiff };
+
+function toSegments(tools: ToolEvent[]): Segment[] {
+	const segments: Segment[] = [];
+	for (const t of tools) {
+		const diff = fileDiff(t);
+		if (diff) {
+			segments.push({ kind: "diff", key: t.toolCallId, diff });
+		} else {
+			const last = segments[segments.length - 1];
+			if (last?.kind === "tools") last.tools.push(t);
+			else segments.push({ kind: "tools", key: t.toolCallId, tools: [t] });
+		}
+	}
+	return segments;
+}
 
 // Memoized so a streamed update only re-renders the message it touched. Every
 // other message keeps its object identity through routeEvent, so React skips it.
@@ -43,7 +67,13 @@ export const MessageBlock = memo(function MessageBlock({
 					</details>
 				)}
 
-				{message.tools.length > 0 && <ToolPanel tools={message.tools} />}
+				{toSegments(message.tools).map((seg) =>
+					seg.kind === "diff" ? (
+						<DiffView key={seg.key} {...seg.diff} />
+					) : (
+						<ToolPanel key={seg.key} tools={seg.tools} />
+					),
+				)}
 
 				{message.content && (
 					<div className="text-sm leading-relaxed text-stone-800">

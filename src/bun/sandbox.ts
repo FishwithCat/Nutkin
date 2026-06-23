@@ -118,6 +118,95 @@ export async function runCommand(
 	};
 }
 
+// Shell-quote a single argument by wrapping in single quotes and escaping any
+// embedded single quote. Safe for arbitrary file paths.
+const shq = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
+
+// Read a file's contents from a sandbox, or null if it doesn't exist. Uses
+// base64 on the wire so binary-ish / multibyte content survives the shell.
+async function readFileRaw(sandbox: Sandbox, path: string): Promise<string | null> {
+	const exec = await sandbox.execWith("sh", (b) =>
+		b.args(["-c", `base64 ${shq(path)}`]).timeout(DEFAULT_TIMEOUT_MS),
+	);
+	if (exec.code !== 0) return null; // missing file / not readable
+	return Buffer.from(exec.stdout(), "base64").toString("utf8");
+}
+
+// Write content to a file in a sandbox, creating parent dirs. Pipes the bytes
+// in as base64 so arbitrary content (quotes, newlines, unicode) lands intact.
+async function writeFileRaw(sandbox: Sandbox, path: string, content: string): Promise<void> {
+	const b64 = Buffer.from(content, "utf8").toString("base64");
+	const script = `mkdir -p "$(dirname ${shq(path)})" && printf %s ${shq(b64)} | base64 -d > ${shq(path)}`;
+	const exec = await sandbox.execWith("sh", (b) =>
+		b.args(["-c", script]).timeout(DEFAULT_TIMEOUT_MS),
+	);
+	if (exec.code !== 0) {
+		throw new Error(exec.stderr() || `failed to write ${path} (exit ${exec.code})`);
+	}
+}
+
+// Create or overwrite a file with the given content. Returns the before/after
+// text (capped) so the UI can render a diff, plus whether the file is new.
+export async function writeFile(
+	sessionId: string,
+	name: string,
+	path: string,
+	content: string,
+) {
+	const sandbox = await ensure(sessionId, name);
+	if (!sandbox) {
+		return {
+			error: `No sandbox named "${name}" in this session. Create one with createSandbox first.`,
+		};
+	}
+	const oldText = await readFileRaw(sandbox, path);
+	await writeFileRaw(sandbox, path, content);
+	const truncated = content.length > MAX_OUTPUT || (oldText?.length ?? 0) > MAX_OUTPUT;
+	return {
+		path,
+		created: oldText === null,
+		oldText: cap(oldText ?? ""),
+		newText: cap(content),
+		...(truncated ? { truncated: true } : {}),
+	};
+}
+
+// Replace a substring within an existing file. Returns before/after text for the
+// diff. Errors if the file is missing or oldString isn't found.
+export async function editFile(
+	sessionId: string,
+	name: string,
+	path: string,
+	oldString: string,
+	newString: string,
+	replaceAll = false,
+) {
+	const sandbox = await ensure(sessionId, name);
+	if (!sandbox) {
+		return {
+			error: `No sandbox named "${name}" in this session. Create one with createSandbox first.`,
+		};
+	}
+	const oldText = await readFileRaw(sandbox, path);
+	if (oldText === null) {
+		return { error: `No such file "${path}" in sandbox "${name}".` };
+	}
+	if (!oldText.includes(oldString)) {
+		return { error: `oldString not found in ${path}.` };
+	}
+	const newText = replaceAll
+		? oldText.split(oldString).join(newString)
+		: oldText.replace(oldString, newString);
+	await writeFileRaw(sandbox, path, newText);
+	const truncated = oldText.length > MAX_OUTPUT || newText.length > MAX_OUTPUT;
+	return {
+		path,
+		oldText: cap(oldText),
+		newText: cap(newText),
+		...(truncated ? { truncated: true } : {}),
+	};
+}
+
 // A promise that rejects when the signal aborts, so it can lose a Promise.race
 // against a long-running exec.
 function rejectOnAbort(signal: AbortSignal): Promise<never> {

@@ -98,8 +98,22 @@ Tools (in `src/bun/agent.ts`, backed by `src/bun/sandbox.ts`):
 
 - `createSandbox(name?, image?)` — boot a sandbox (default name `default`, default image `alpine`). Adopts a same-named sandbox left on disk by an earlier run.
 - `runCommand(name?, command, args?)` — run a command, returns stdout/stderr/exit code. Lazily re-attaches after a restart.
+- `writeFile(name?, path, content)` — create or overwrite a file with the given content. Returns the before/after text so the change shows as a diff.
+- `editFile(name?, path, oldString, newString, replaceAll?)` — replace a snippet within an existing file. Also returns before/after text for the diff.
 - `stopSandbox(name?)` — pause a sandbox (files preserved; resumes on next command).
 - `listSandboxes()` — this session's sandboxes (including persisted ones) with status.
+
+The agent is steered to change files with `writeFile`/`editFile` rather than shell
+redirection (`echo >`, `sed -i`), because those tools capture the file's content
+before and after the edit. Each completed file edit renders as its own **white,
+standalone diff card** in the chat — separate from the grouped tool-call panel —
+showing a **unified diff** (line-number gutter, green additions / red deletions)
+with the path and +/− counts. See `DiffView` in `src/mainview/components/DiffView.tsx`;
+the split between diff cards and the tool panel happens in `MessageBlock.tsx`
+(`toSegments`), preserving chronological order. A file edit that is still running
+or errored stays in the tool panel until it succeeds. Diffs are computed with
+[`diff`](https://github.com/kpdecker/jsdiff) (jsdiff); file content is capped at
+10k chars, and a truncated diff is flagged.
 
 Just ask in chat, e.g. *"create a sandbox and run `uname -a` in it"*.
 

@@ -7,6 +7,8 @@ import {
 	ChevronRight,
 	CircleX,
 	Clock,
+	FilePlus,
+	FilePen,
 	List,
 	Loader2,
 	Square,
@@ -51,6 +53,10 @@ function toolMeta(tool: ToolEvent): { icon: LucideIcon; summary: string } {
 					.join(" ")
 					.trim(),
 			};
+		case "writeFile":
+			return { icon: FilePlus, summary: str(input.path) };
+		case "editFile":
+			return { icon: FilePen, summary: str(input.path) };
 		case "stopSandbox":
 			return { icon: Square, summary: str(input.name) || "default" };
 		case "listSandboxes":

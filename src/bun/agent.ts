@@ -10,9 +10,11 @@ import { stepCountIs, streamText, tool, type ModelMessage } from "ai";
 import { z } from "zod";
 import {
 	createSandbox,
+	editFile,
 	listSandboxes,
 	runCommand,
 	stopSandbox,
+	writeFile,
 } from "./sandbox";
 
 // Bun auto-loads .env, so DEEPSEEK_API_KEY is picked up automatically by the
@@ -22,7 +24,11 @@ const MODEL = process.env.DEEPSEEK_MODEL ?? "deepseek-v4-flash";
 const SYSTEM_PROMPT = [
 	"You are a helpful AI assistant powered by DeepSeek with access to tools:",
 	"getCurrentTime, and per-session Linux sandboxes (createSandbox, runCommand,",
-	"stopSandbox, listSandboxes). Each tool's own description says how to use it.",
+	"writeFile, editFile, stopSandbox, listSandboxes). Each tool's own description",
+	"says how to use it. To create or overwrite a file use writeFile, and to modify",
+	"part of a file use editFile — do NOT change files with shell redirection like",
+	"'echo > file' or 'sed -i' via runCommand, so every file change is shown to the",
+	"user as a diff. Use runCommand for everything else (building, running, inspecting).",
 	"CRITICAL: The ONLY way you learn what a command did is by calling runCommand and",
 	"reading the tool result that comes back. You cannot run, ping, curl, or test",
 	"anything by writing about it. Never invent command output, stdout, stderr, exit",
@@ -98,6 +104,43 @@ function sandboxTools(sessionId: string) {
 			}),
 			execute: ({ name = "default", command, args = [], timeoutMs }, { abortSignal }) =>
 				runCommand(sessionId, name, command, args, timeoutMs, abortSignal),
+		}),
+		writeFile: tool({
+			description:
+				"Create a new file or overwrite an existing one with the given content inside a sandbox. Use this (not 'echo > file' via runCommand) whenever you create or fully rewrite a file, so the change is shown as a diff.",
+			inputSchema: z.object({
+				name: z
+					.string()
+					.optional()
+					.describe("Which sandbox to write in. Defaults to 'default'."),
+				path: z
+					.string()
+					.describe("Absolute or relative path of the file to write, e.g. '/app/main.py'."),
+				content: z.string().describe("The full new content of the file."),
+			}),
+			execute: ({ name = "default", path, content }) =>
+				writeFile(sessionId, name, path, content),
+		}),
+		editFile: tool({
+			description:
+				"Replace a snippet of text within an existing file inside a sandbox. Use this (not 'sed -i' via runCommand) for targeted edits, so the change is shown as a diff. oldString must appear in the file; it is replaced by newString.",
+			inputSchema: z.object({
+				name: z
+					.string()
+					.optional()
+					.describe("Which sandbox to edit in. Defaults to 'default'."),
+				path: z.string().describe("Path of the file to edit."),
+				oldString: z
+					.string()
+					.describe("The exact existing text to replace. Must match the file."),
+				newString: z.string().describe("The text to replace it with."),
+				replaceAll: z
+					.boolean()
+					.optional()
+					.describe("Replace every occurrence instead of just the first. Defaults to false."),
+			}),
+			execute: ({ name = "default", path, oldString, newString, replaceAll = false }) =>
+				editFile(sessionId, name, path, oldString, newString, replaceAll),
 		}),
 		stopSandbox: tool({
 			description:
