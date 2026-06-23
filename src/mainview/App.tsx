@@ -549,8 +549,12 @@ const markdownComponents: Components = {
 	hr: () => <hr className="my-3 border-stone-200" />,
 	code: ({ className, children }) => {
 		// Inline code has no language class and no newline; block code is wrapped
-		// in <pre> below, so here we only need to style the inline variant.
-		const isBlock = /language-/.test(className ?? "");
+		// in <pre> below, so here we only need to style the inline variant. A
+		// fenced block without a language tag still has no `language-` class, so
+		// fall back to detecting the multi-line content to avoid styling it as an
+		// orange inline chip inside the dark <pre>.
+		const isBlock =
+			/language-/.test(className ?? "") || /\n/.test(String(children));
 		if (isBlock) {
 			return <code className={className}>{children}</code>;
 		}
