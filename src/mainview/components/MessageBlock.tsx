@@ -1,5 +1,5 @@
 import { memo } from "react";
-import type { ToolEvent, UIMessage } from "../types";
+import type { Anchor, ToolEvent, UIMessage } from "../types";
 import { DiffView, fileDiff, type FileDiff } from "./DiffView";
 import { Markdown } from "./Markdown";
 import { ToolPanel } from "./ToolPanel";
@@ -31,7 +31,18 @@ function toSegments(tools: ToolEvent[]): Segment[] {
 // other message keeps its object identity through routeEvent, so React skips it.
 export const MessageBlock = memo(function MessageBlock({
 	message,
-}: { message: UIMessage }) {
+	threads,
+	onOpenThread,
+	onCreateThread,
+	openAnchor,
+}: {
+	message: UIMessage;
+	// Thread turns grouped by the toolCallId of the diff card they hang on.
+	threads: Record<string, UIMessage[]>;
+	onOpenThread: (anchor: Anchor) => void;
+	onCreateThread: (anchor: Anchor, text: string) => void;
+	openAnchor: Anchor | null;
+}) {
 	const isUser = message.role === "user";
 	const empty =
 		!isUser &&
@@ -69,7 +80,16 @@ export const MessageBlock = memo(function MessageBlock({
 
 				{toSegments(message.tools).map((seg) =>
 					seg.kind === "diff" ? (
-						<DiffView key={seg.key} {...seg.diff} />
+						<DiffView
+							key={seg.key}
+							{...seg.diff}
+							toolCallId={seg.key}
+							commit={message.commits?.find((c) => c.path === seg.diff.path)}
+							thread={threads[seg.key] ?? []}
+							onOpenThread={onOpenThread}
+							onCreateThread={onCreateThread}
+							openAnchor={openAnchor}
+						/>
 					) : (
 						<ToolPanel key={seg.key} tools={seg.tools} />
 					),

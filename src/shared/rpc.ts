@@ -16,6 +16,31 @@ export interface ChatMessage {
 	content: string;
 }
 
+/**
+ * A code region under discussion, pinned to the immutable per-turn git commit
+ * the change was snapshotted into. The commit lets the agent time-travel the
+ * whole repo (`git show <hash>:<file>`) to look at related code, while the
+ * frozen `quotedText` is shown without a round-trip.
+ */
+export interface Anchor {
+	toolCallId: string; // the diff card this thread hangs on (grouping key)
+	sandboxName: string; // sandbox to run git in
+	repoRoot: string; // `git -C` root
+	commitHash: string; // immutable whole-repo snapshot for that turn
+	path: string; // discussed file
+	startLine: number; // 1-based line range in the new file
+	endLine: number;
+	quotedText: string; // frozen snippet
+}
+
+/** Per-file record of the commit a turn produced, used to build an Anchor. */
+export interface Commit {
+	path: string;
+	sandboxName: string;
+	repoRoot: string;
+	commitHash: string;
+}
+
 /** A tool invocation surfaced to the UI so the agent's steps are visible. */
 export interface ToolCallInfo {
 	id: string;
@@ -49,6 +74,10 @@ export interface PersistedMessage {
 	reasoning: string;
 	tools: PersistedTool[];
 	error?: string;
+	// Set on a thread turn — pins it to the diff card / commit it discusses.
+	anchor?: Anchor;
+	// Set on a turn that edited files — the commit each changed file landed in.
+	commits?: Commit[];
 }
 
 export interface PersistedTask {
@@ -91,6 +120,8 @@ export type AgentRPC = {
 			toolResult: ToolResultInfo;
 			assistantDone: { id: string };
 			assistantError: { id: string; message: string };
+			/** Per-turn git snapshot: the commit each changed file landed in. */
+			assistantCommits: { id: string; commits: Commit[] };
 		};
 	}>;
 };

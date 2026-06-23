@@ -1,5 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { ChatMessage } from "../shared/rpc";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { Anchor, ChatMessage } from "../shared/rpc";
 import {
 	abortTurn,
 	deleteTask,
@@ -14,10 +14,12 @@ import {
 	fromPersisted,
 	makeId,
 	routeEvent,
+	threadHistory,
 	toPersisted,
 } from "./taskState";
 import type { Task, UIMessage } from "./types";
 import { Composer } from "./components/Composer";
+import { DiscussionPanel } from "./components/DiscussionPanel";
 import { EmptyState } from "./components/EmptyState";
 import { MessageBlock } from "./components/MessageBlock";
 import { Sidebar } from "./components/Sidebar";
@@ -28,6 +30,8 @@ function App() {
 	const [tasks, setTasks] = useState<Task[]>([]);
 	const [activeId, setActiveId] = useState<string | null>(null);
 	const [input, setInput] = useState("");
+	// The code anchor whose discussion is open in the side panel (null = closed).
+	const [openAnchor, setOpenAnchor] = useState<Anchor | null>(null);
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const savedRef = useRef<Map<string, string>>(new Map());
 	// Whether the view should keep following new content. Updated on every scroll
@@ -90,9 +94,11 @@ function App() {
 		if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 64;
 	}
 
-	// Opening a conversation lands at its latest message.
+	// Opening a conversation lands at its latest message and closes any open
+	// discussion (it belonged to the previous task).
 	useLayoutEffect(() => {
 		stickRef.current = true;
+		setOpenAnchor(null);
 		const el = scrollRef.current;
 		if (el) el.scrollTop = el.scrollHeight;
 	}, [activeId]);
@@ -106,20 +112,29 @@ function App() {
 	}, [activeTask?.messages]);
 
 	function send() {
-		const text = input.trim();
-		if (!text || activeTask?.busy) return;
+		sendMessage(input);
+	}
 
-		// Sending always pulls the view down to the new turn, even if the user had
-		// scrolled up into history.
-		stickRef.current = true;
+	// Send a turn. With `anchor` it's a thread turn discussing a diff card: it
+	// stays out of the main transcript and gets a snapshot-focused history so the
+	// agent can `git show` the commit to look at related code. Returns whether the
+	// message was actually sent (false if empty or the task is busy).
+	function sendMessage(text: string, anchor?: Anchor): boolean {
+		const trimmed = text.trim();
+		if (!trimmed || activeTask?.busy) return false;
+
+		// A main turn pulls the view down; a thread reply renders in its card, so
+		// it shouldn't yank the main transcript around.
+		if (!anchor) stickRef.current = true;
 
 		const userMsg: UIMessage = {
 			id: makeId(),
 			role: "user",
-			content: text,
+			content: trimmed,
 			reasoning: "",
 			tools: [],
 			pending: false,
+			anchor,
 		};
 		const assistantId = makeId();
 		const assistantMsg: UIMessage = {
@@ -129,30 +144,34 @@ function App() {
 			reasoning: "",
 			tools: [],
 			pending: true,
+			anchor,
 		};
 
 		if (!activeTask) {
-			// No active task — start a new one from this message.
+			// No active task — start a new one from this message. (Thread turns
+			// always have an active task, so this is the plain-message path.)
 			const task: Task = {
 				id: makeId(),
-				title: deriveTitle(text),
+				title: deriveTitle(trimmed),
 				messages: [userMsg, assistantMsg],
 				busy: true,
 			};
 			setTasks((prev) => [task, ...prev]);
 			setActiveId(task.id);
 			setInput("");
-			sendUserMessage(assistantId, task.id, [{ role: "user", content: text }]);
-			return;
+			sendUserMessage(assistantId, task.id, [{ role: "user", content: trimmed }]);
+			return true;
 		}
 
-		// History sent to the agent = prior complete messages + the new user turn.
-		const history: ChatMessage[] = [
-			...activeTask.messages
-				.filter((m) => m.content.trim().length > 0)
-				.map((m) => ({ role: m.role, content: m.content })),
-			{ role: "user", content: text },
-		];
+		const history: ChatMessage[] = anchor
+			? threadHistory(activeTask, anchor, trimmed)
+			: // Main history = prior plain turns (anchored thread turns excluded).
+				[
+					...activeTask.messages
+						.filter((m) => !m.anchor && m.content.trim().length > 0)
+						.map((m) => ({ role: m.role, content: m.content })),
+					{ role: "user", content: trimmed },
+				];
 
 		setTasks((prev) =>
 			prev.map((t) =>
@@ -161,9 +180,47 @@ function App() {
 					: t,
 			),
 		);
-		setInput("");
+		if (!anchor) setInput("");
 		sendUserMessage(assistantId, activeTask.id, history);
+		return true;
 	}
+
+	// Stable handlers passed to diff cards so memoized MessageBlocks don't
+	// re-render every frame. The side panel only appears once a first question is
+	// actually sent from the inline composer (onCreateThread); a chip just reopens
+	// an existing thread (onOpenThread).
+	const sendMessageRef = useRef(sendMessage);
+	sendMessageRef.current = sendMessage;
+	const onOpenThread = useCallback((anchor: Anchor) => setOpenAnchor(anchor), []);
+	const onCreateThread = useCallback((anchor: Anchor, text: string) => {
+		if (sendMessageRef.current(text, anchor)) setOpenAnchor(anchor);
+	}, []);
+
+	// Messages belonging to the open anchor's thread (same card + same line range).
+	const openThread = openAnchor
+		? (activeTask?.messages ?? []).filter(
+				(m) =>
+					m.anchor?.toolCallId === openAnchor.toolCallId &&
+					m.anchor.startLine === openAnchor.startLine &&
+					m.anchor.endLine === openAnchor.endLine,
+			)
+		: [];
+
+	// Thread turns grouped by the diff card they hang on. Recomputed only when a
+	// thread message actually changes (not on every streamed main-turn token), so
+	// it stays referentially stable and the MessageBlock memo keeps holding.
+	const threadSig = (activeTask?.messages ?? [])
+		.filter((m) => m.anchor)
+		.map((m) => `${m.id}:${m.content.length}:${m.tools.length}:${m.pending}`)
+		.join("|");
+	// eslint-disable-next-line react-hooks/exhaustive-deps
+	const threads = useMemo(() => {
+		const map: Record<string, UIMessage[]> = {};
+		for (const m of activeTask?.messages ?? []) {
+			if (m.anchor) (map[m.anchor.toolCallId] ??= []).push(m);
+		}
+		return map;
+	}, [threadSig]);
 
 	// Stop the active task's in-flight turn. The backend's onDone flips busy
 	// false once the abort propagates; the partial reply already streamed stays.
@@ -221,9 +278,18 @@ function App() {
 					>
 						<div className="w-full px-6 py-6 space-y-4">
 							{activeTask ? (
-								activeTask.messages.map((m) => (
-									<MessageBlock key={m.id} message={m} />
-								))
+								activeTask.messages
+									.filter((m) => !m.anchor)
+									.map((m) => (
+										<MessageBlock
+											key={m.id}
+											message={m}
+											threads={threads}
+											onOpenThread={onOpenThread}
+											onCreateThread={onCreateThread}
+											openAnchor={openAnchor}
+										/>
+									))
 							) : (
 								<EmptyState />
 							)}
@@ -239,6 +305,16 @@ function App() {
 						busy={activeTask?.busy ?? false}
 					/>
 				</main>
+
+				{openAnchor && activeTask && (
+					<DiscussionPanel
+						anchor={openAnchor}
+						thread={openThread}
+						busy={activeTask.busy}
+						onSend={(text) => sendMessage(text, openAnchor)}
+						onClose={() => setOpenAnchor(null)}
+					/>
+				)}
 			</div>
 		</div>
 	);

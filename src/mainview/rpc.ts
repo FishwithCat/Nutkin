@@ -4,6 +4,7 @@ import { Electroview } from "electrobun/view";
 import type {
 	AgentRPC,
 	ChatMessage,
+	Commit,
 	PersistedTask,
 	ToolCallInfo,
 	ToolResultInfo,
@@ -14,6 +15,7 @@ export type AgentEvent =
 	| { type: "reasoning"; id: string; text: string }
 	| { type: "toolCall"; call: ToolCallInfo }
 	| { type: "toolResult"; result: ToolResultInfo }
+	| { type: "commits"; id: string; commits: Commit[] }
 	| { type: "done"; id: string }
 	| { type: "error"; id: string; message: string };
 
@@ -41,6 +43,7 @@ const rpc = Electroview.defineRPC<AgentRPC>({
 				emit({ type: "reasoning", id, text }),
 			toolCall: (call) => emit({ type: "toolCall", call }),
 			toolResult: (result) => emit({ type: "toolResult", result }),
+			assistantCommits: ({ id, commits }) => emit({ type: "commits", id, commits }),
 			assistantDone: ({ id }) => emit({ type: "done", id }),
 			assistantError: ({ id, message }) =>
 				emit({ type: "error", id, message }),

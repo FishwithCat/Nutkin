@@ -83,7 +83,7 @@ async function ensure(sessionId: string, name: string): Promise<Sandbox | null> 
 }
 
 // Backstop so a command that never exits can't hang the tool call forever.
-const DEFAULT_TIMEOUT_MS = 120_000;
+const DEFAULT_TIMEOUT_MS = 30_000;
 
 export async function runCommand(
 	sessionId: string,
@@ -92,6 +92,7 @@ export async function runCommand(
 	args: string[] = [],
 	timeoutMs = DEFAULT_TIMEOUT_MS,
 	signal?: AbortSignal,
+	background = false,
 ) {
 	const sandbox = await ensure(sessionId, name);
 	if (!sandbox) {
@@ -99,10 +100,28 @@ export async function runCommand(
 			error: `No sandbox named "${name}" in this session. Create one with createSandbox first.`,
 		};
 	}
+	const script = [command, ...args].join(" ");
+
+	// Detached: launch inside the VM and return the PID + log path immediately, so
+	// a long-running server (vite preview, npm start) keeps running instead of
+	// blocking the tool until its timeout fires and kills the very process we want.
+	if (background) {
+		const log = `/tmp/nutkin-bg-${Date.now()}.log`;
+		const detached = `nohup sh -c ${shq(script)} > ${shq(log)} 2>&1 & echo $!`;
+		const exec = await sandbox.execWith("sh", (b) =>
+			b.args(["-c", detached]).timeout(10_000),
+		);
+		return {
+			background: true,
+			pid: exec.stdout().trim(),
+			log,
+			hint: `Started in background. Inspect output with: cat ${log}`,
+		};
+	}
+
 	// Run through the VM's shell so "uname -a", pipes, and && parse correctly —
 	// exec() treats the whole string as one executable name and hangs if it's
 	// not a real file. The timeout kills a runaway process instead of blocking.
-	const script = [command, ...args].join(" ");
 	const exec = sandbox.execWith("sh", (b) =>
 		b.args(["-c", script]).timeout(timeoutMs),
 	);
@@ -205,6 +224,97 @@ export async function editFile(
 		newText: cap(newText),
 		...(truncated ? { truncated: true } : {}),
 	};
+}
+
+// --- Per-turn git snapshots ------------------------------------------------
+//
+// After a turn edits files we commit each touched repo so a diff card can later
+// be discussed against an immutable whole-repo state: the commit hash lets the
+// agent `git show <hash>:<file>` to look at related code at that exact moment.
+
+export interface ChangedFile {
+	sandboxName: string;
+	path: string;
+}
+export interface CommitInfo {
+	path: string;
+	sandboxName: string;
+	repoRoot: string;
+	commitHash: string;
+}
+
+// Identity flags inlined per-commit so we never touch the VM's global git config.
+const GIT_ID = "-c user.email=nutkin@local -c user.name=Nutkin";
+
+async function sh(sandbox: Sandbox, script: string): Promise<{ code: number; out: string }> {
+	const exec = await sandbox.execWith("sh", (b) =>
+		b.args(["-c", script]).timeout(DEFAULT_TIMEOUT_MS),
+	);
+	return { code: exec.code, out: exec.stdout().trim() };
+}
+
+// alpine ships without git. ponytail: apk-only — for non-alpine images bake git
+// into the image instead of installing it on first use.
+async function ensureGit(sandbox: Sandbox): Promise<void> {
+	const has = await sh(sandbox, "command -v git >/dev/null 2>&1 && echo y || echo n");
+	if (has.out !== "y") await sh(sandbox, "apk add --no-cache git >/dev/null 2>&1 || true");
+}
+
+// Repo root containing `path`, initialising one at the file's directory if the
+// file isn't tracked yet. ponytail: per-dir init can fragment nested projects;
+// steer the agent to `git init` project roots to keep snapshots coarse.
+async function repoRoot(sandbox: Sandbox, path: string): Promise<string> {
+	const dir = `$(dirname ${shq(path)})`;
+	const top = await sh(sandbox, `git -C ${dir} rev-parse --show-toplevel 2>/dev/null`);
+	if (top.code === 0 && top.out) return top.out;
+	await sh(sandbox, `mkdir -p ${dir} && git -C ${dir} init -q`);
+	const again = await sh(sandbox, `git -C ${dir} rev-parse --show-toplevel 2>/dev/null`);
+	return again.out;
+}
+
+// Stage everything and commit. --allow-empty so a turn that only touched
+// already-committed content still yields a hash to anchor against. Returns the
+// new HEAD, or null if the repo root is unknown / the commit failed.
+async function commitRepo(sandbox: Sandbox, root: string): Promise<string | null> {
+	if (!root) return null;
+	const r = shq(root);
+	await sh(sandbox, `git -C ${r} add -A`);
+	await sh(sandbox, `git -C ${r} ${GIT_ID} commit -q --allow-empty -m "nutkin turn"`);
+	const head = await sh(sandbox, `git -C ${r} rev-parse HEAD 2>/dev/null`);
+	return head.code === 0 && head.out ? head.out : null;
+}
+
+// Commit each repo a turn touched (one commit per sandbox+repo, all its files
+// share the hash). Best-effort: a file we can't commit just yields no CommitInfo
+// and its card's discussion stays disabled.
+export async function commitChanges(
+	sessionId: string,
+	changes: ChangedFile[],
+): Promise<CommitInfo[]> {
+	const bySandbox = new Map<string, string[]>();
+	for (const c of changes) {
+		const list = bySandbox.get(c.sandboxName) ?? [];
+		list.push(c.path);
+		bySandbox.set(c.sandboxName, list);
+	}
+	const out: CommitInfo[] = [];
+	for (const [sandboxName, paths] of bySandbox) {
+		const sandbox = await ensure(sessionId, sandboxName);
+		if (!sandbox) continue;
+		await ensureGit(sandbox);
+		const repoOf = new Map<string, string>();
+		for (const p of paths) repoOf.set(p, await repoRoot(sandbox, p));
+		const hashOf = new Map<string, string | null>();
+		for (const root of new Set(repoOf.values())) {
+			hashOf.set(root, await commitRepo(sandbox, root));
+		}
+		for (const p of paths) {
+			const root = repoOf.get(p) ?? "";
+			const hash = hashOf.get(root);
+			if (hash) out.push({ path: p, sandboxName, repoRoot: root, commitHash: hash });
+		}
+	}
+	return out;
 }
 
 // A promise that rejects when the signal aborts, so it can lose a Promise.race

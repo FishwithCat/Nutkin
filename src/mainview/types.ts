@@ -1,5 +1,8 @@
 // Shared UI state shapes for the chat view. These mirror what the agent streams
 // but carry runtime-only flags (pending/busy) that never get persisted.
+import type { Anchor, Commit } from "../shared/rpc";
+
+export type { Anchor, Commit };
 
 export interface ToolEvent {
 	toolCallId: string;
@@ -20,6 +23,10 @@ export interface UIMessage {
 	tools: ToolEvent[];
 	pending: boolean;
 	error?: string;
+	// Set on a thread turn — pins it to the diff card / commit it discusses.
+	anchor?: Anchor;
+	// Set on a turn that edited files — the commit each changed file landed in.
+	commits?: Commit[];
 }
 
 // A task is one conversation thread. Everything shown in the UI is derived

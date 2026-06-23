@@ -125,6 +125,39 @@ so the first boot is slower.
 > is no automatic GC tied to deleting a chat yet — remove stale ones with
 > `Sandbox.remove(name)` or the `msb` CLI if they pile up.
 
+## Discussing a change (diff threads + git snapshots)
+
+Any diff card can be discussed with the agent in an **inline-anchor + side-panel**
+layout. Drag across the diff lines to select them (IDE-style; shift-click extends
+the range) — a small **inline composer** opens under the selection. Only once you
+send the first question does the docked **discussion panel** (`DiscussionPanel.tsx`)
+appear on the right, where the multi-turn conversation lives so the diff stays
+continuous. Each thread then leaves a **slim inline anchor chip** at its lines
+(finding + status + 展开讨论), and selected / commented lines get a thin left
+side-bar. Clicking a chip (or **查看代码** in the panel) reopens/scrolls to that
+anchor. The agent replies in a thread anchored to those lines,
+with a **回复** affordance to continue it — each line range is its own
+conversation. Threads stay out of the main transcript and are saved with the
+conversation. Lines that carry a thread are never folded, so their comment box
+always has a row to hang under.
+
+To make discussion of *historical* code reliable, every turn that edits files is
+**snapshotted into git**: after the turn ends, `commitChanges` (in
+`src/bun/sandbox.ts`) commits each repo the turn touched inside the sandbox (one
+commit per sandbox+repo; `git init`s a workspace on demand, installs git if the
+image lacks it). The commit hash is sent back (`assistantCommits`) and stored on
+the turn, so each diff card knows its immutable snapshot.
+
+A thread turn is just a normal message carrying an `anchor`
+(`{ toolCallId, sandboxName, repoRoot, commitHash, path, startLine, endLine,
+quotedText }`), so it reuses the whole streaming/persistence pipeline. Its
+history (`threadHistory` in `taskState.ts`) quotes the selected snippet and tells
+the agent how to browse the repo *at that commit* — `git show <hash>:<file>`,
+`git ls-tree -r <hash>`, `git diff <hash> HEAD` — so it can pull up related code
+from the same batch even if the files have changed since. Because the anchor
+pins an immutable commit, threads never need re-anchoring; no extra storage is
+added (anchors and commits ride in the existing SQLite JSON).
+
 ## How HMR Works
 
 When you run `bun run dev:hmr`:

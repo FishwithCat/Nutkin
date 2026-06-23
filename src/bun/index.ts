@@ -10,7 +10,12 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { ModelMessage } from "ai";
 import { runAgent } from "./agent";
-import { removeSessionSandboxes, stopAllSandboxes } from "./sandbox";
+import {
+	commitChanges,
+	removeSessionSandboxes,
+	stopAllSandboxes,
+	type ChangedFile,
+} from "./sandbox";
 import type { AgentRPC, PersistedTask } from "../shared/rpc";
 
 // Persisted conversations live in the per-user app data dir.
@@ -88,6 +93,11 @@ const rpc = BrowserView.defineRPC<AgentRPC>({
 				const modelMessages = messages as ModelMessage[];
 				const controller = new AbortController();
 				running.set(assistantId, controller);
+				// Track which files (and in which sandbox) this turn changed, so we
+				// can snapshot the touched repos once the turn ends.
+				const sandboxOf = new Map<string, string>(); // toolCallId -> sandbox name
+				const changed: ChangedFile[] = [];
+				const isEdit = (name: string) => name === "writeFile" || name === "editFile";
 				void runAgent(
 					sessionId,
 					modelMessages,
@@ -95,15 +105,39 @@ const rpc = BrowserView.defineRPC<AgentRPC>({
 						onText: (text) => rpc.send.assistantDelta({ id: assistantId, text }),
 						onReasoning: (text) =>
 							rpc.send.assistantReasoning({ id: assistantId, text }),
-						onToolCall: (call) =>
-							rpc.send.toolCall({ id: assistantId, ...call }),
-						onToolResult: (result) =>
-							rpc.send.toolResult({ id: assistantId, ...result }),
+						onToolCall: (call) => {
+							if (isEdit(call.toolName)) {
+								const name = (call.input as { name?: string } | undefined)?.name ?? "default";
+								sandboxOf.set(call.toolCallId, name);
+							}
+							rpc.send.toolCall({ id: assistantId, ...call });
+						},
+						onToolResult: (result) => {
+							if (isEdit(result.toolName)) {
+								const out = result.output as { path?: string } | undefined;
+								if (out && typeof out.path === "string") {
+									changed.push({
+										sandboxName: sandboxOf.get(result.toolCallId) ?? "default",
+										path: out.path,
+									});
+								}
+							}
+							rpc.send.toolResult({ id: assistantId, ...result });
+						},
 						onError: (message) =>
 							rpc.send.assistantError({ id: assistantId, message }),
 						onDone: () => {
 							running.delete(assistantId);
-							rpc.send.assistantDone({ id: assistantId });
+							// Snapshot the repos this turn touched, then send the hashes
+							// (before `done`, so they persist with the turn) and finish.
+							void (async () => {
+								if (changed.length > 0) {
+									const commits = await commitChanges(sessionId, changed).catch(() => []);
+									if (commits.length > 0)
+										rpc.send.assistantCommits({ id: assistantId, commits });
+								}
+								rpc.send.assistantDone({ id: assistantId });
+							})();
 						},
 					},
 					controller.signal,

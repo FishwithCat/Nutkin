@@ -101,9 +101,13 @@ function sandboxTools(sessionId: string) {
 					.number()
 					.optional()
 					.describe("Kill the command if it runs longer than this many ms. Defaults to 120000."),
+				background: z
+					.boolean()
+					.optional()
+					.describe("Run detached and return immediately with a PID and log path. Use this for long-running servers (vite preview, npm start, dev servers) — a foreground run would just block until the timeout kills the server you want kept alive. Inspect its output afterwards with `cat <log>`."),
 			}),
-			execute: ({ name = "default", command, args = [], timeoutMs }, { abortSignal }) =>
-				runCommand(sessionId, name, command, args, timeoutMs, abortSignal),
+			execute: ({ name = "default", command, args = [], timeoutMs, background }, { abortSignal }) =>
+				runCommand(sessionId, name, command, args, timeoutMs, abortSignal, background),
 		}),
 		writeFile: tool({
 			description:

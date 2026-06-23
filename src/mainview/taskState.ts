@@ -2,9 +2,43 @@
 // message, how a task round-trips to persistence, and how an event is routed to
 // the task that owns its target message. Kept free of React so it can be reused
 // and reasoned about on its own.
-import type { PersistedTask } from "../shared/rpc";
+import type { Anchor, ChatMessage, PersistedTask } from "../shared/rpc";
 import type { AgentEvent } from "./rpc";
 import type { Task, UIMessage } from "./types";
+
+// History for a thread turn: a framing message that quotes the discussed code
+// and tells the agent how to time-travel the repo at that commit, the prior
+// turns of this thread, then the new question. Kept separate from the main
+// transcript so a discussion stays focused on its diff card.
+export function threadHistory(
+	task: Task,
+	anchor: Anchor,
+	text: string,
+): ChatMessage[] {
+	const g = `git -C ${anchor.repoRoot}`;
+	const framing = [
+		`我们在讨论你在提交 ${anchor.commitHash.slice(0, 8)}（沙箱 ${anchor.sandboxName}，仓库 ${anchor.repoRoot}）中对 ${anchor.path} 的修改。`,
+		`讨论的代码片段（第 ${anchor.startLine}-${anchor.endLine} 行）：`,
+		"```",
+		anchor.quotedText,
+		"```",
+		`需要查看相关代码时，用 runCommand 在沙箱 ${anchor.sandboxName} 里执行（该提交是不可变快照，即使文件后来又改了也能还原）：`,
+		`- 看快照里任意文件： ${g} show ${anchor.commitHash}:<相对路径>`,
+		`- 列出全部文件： ${g} ls-tree -r --name-only ${anchor.commitHash}`,
+		`- 看这一轮的全部改动： ${g} show ${anchor.commitHash}`,
+		`- 看此后的变化： ${g} diff ${anchor.commitHash} HEAD -- ${anchor.path}`,
+	].join("\n");
+	const prior = task.messages
+		.filter(
+			(m) =>
+				m.anchor?.toolCallId === anchor.toolCallId &&
+				m.anchor.startLine === anchor.startLine &&
+				m.anchor.endLine === anchor.endLine &&
+				m.content.trim().length > 0,
+		)
+		.map((m) => ({ role: m.role, content: m.content }) as ChatMessage);
+	return [{ role: "user", content: framing }, ...prior, { role: "user", content: text }];
+}
 
 export function makeId() {
 	return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -36,6 +70,8 @@ export function applyEvent(m: UIMessage, event: AgentEvent): UIMessage {
 			};
 		case "error":
 			return { ...m, pending: false, error: event.message };
+		case "commits":
+			return { ...m, commits: event.commits };
 		case "toolCall":
 			return {
 				...m,
@@ -75,6 +111,8 @@ export function toPersisted(task: Task): PersistedTask {
 			reasoning: m.reasoning,
 			tools: m.tools,
 			error: m.error,
+			anchor: m.anchor,
+			commits: m.commits,
 		})),
 	};
 }
