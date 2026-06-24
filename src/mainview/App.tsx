@@ -18,6 +18,7 @@ import {
 	deriveTitle,
 	fromPersisted,
 	makeId,
+	refactorPrompt,
 	routeEvent,
 	threadHistory,
 	toPersisted,
@@ -57,6 +58,9 @@ function App() {
 	const activeTask = tasks.find((t) => t.id === activeId) ?? null;
 	const activeProject =
 		projects.find((p) => p.id === activeProjectId) ?? null;
+	// `tasks` is a cross-project pool (busy tasks survive project switches); the
+	// sidebar shows only the open project's tasks.
+	const projectTasks = tasks.filter((t) => t.projectId === activeProjectId);
 
 	// Open a project's workspace: load its sessions, remember it as the last
 	// project, and switch the view. Seeds the save cache so freshly-loaded tasks
@@ -67,7 +71,19 @@ function App() {
 		setActiveId(null);
 		loadTasks(id).then((stored) => {
 			for (const t of stored) savedRef.current.set(t.id, JSON.stringify(t));
-			setTasks(stored.map(fromPersisted));
+			const loaded = stored.map(fromPersisted);
+			// Keep in-memory busy tasks alive across the switch instead of replacing
+			// the whole array. A running task would otherwise be dropped, orphaning its
+			// still-arriving stream events and losing the unsaved partial turn (busy
+			// tasks aren't persisted). The live busy copy must WIN over any loaded DB
+			// row: an in-flight turn on an already-saved task has a stale row, so we
+			// drop the loaded version by id. The sidebar filters by project, so busy
+			// tasks from other projects stay in the pool but hidden.
+			setTasks((prev) => {
+				const busy = prev.filter((t) => t.busy);
+				const busyIds = new Set(busy.map((t) => t.id));
+				return [...busy, ...loaded.filter((t) => !busyIds.has(t.id))];
+			});
 		});
 	}, []);
 
@@ -245,6 +261,32 @@ function App() {
 	// an existing thread (onOpenThread).
 	const sendMessageRef = useRef(sendMessage);
 	sendMessageRef.current = sendMessage;
+
+	// When a discuss-agent calls the `refactor` tool, hand the work to this
+	// session's main build conversation: fire a build turn (no anchor) once the
+	// discussion turn finishes. Tracked per tool-call id so each call dispatches
+	// exactly once; marked dispatched only on a successful send so a busy moment
+	// never silently drops the hand-off.
+	const dispatched = useRef<Set<string>>(new Set());
+	useEffect(() => {
+		if (!activeTask || activeTask.busy) return;
+		for (const m of activeTask.messages) {
+			if (!m.anchor || m.pending) continue;
+			const t = m.tools.find(
+				(t) =>
+					t.toolName === "refactor" &&
+					t.output !== undefined &&
+					!dispatched.current.has(t.toolCallId),
+			);
+			if (!t) continue;
+			const instruction = String(
+				(t.input as { instruction?: unknown })?.instruction ?? "",
+			);
+			if (sendMessageRef.current(refactorPrompt(m.anchor, instruction)))
+				dispatched.current.add(t.toolCallId);
+		}
+	}, [activeTask]);
+
 	const onOpenThread = useCallback((anchor: Anchor) => setOpenAnchor(anchor), []);
 	const onCreateThread = useCallback((anchor: Anchor, text: string) => {
 		if (sendMessageRef.current(text, anchor)) setOpenAnchor(anchor);
@@ -396,7 +438,7 @@ function App() {
 
 			<div className="flex-1 flex min-h-0">
 				<Sidebar
-					tasks={tasks}
+					tasks={projectTasks}
 					activeId={activeId}
 					onSelect={setActiveId}
 					onNew={newTask}

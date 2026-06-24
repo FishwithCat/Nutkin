@@ -40,6 +40,27 @@ export function threadHistory(
 	return [{ role: "user", content: framing }, ...prior, { role: "user", content: text }];
 }
 
+// A build-mode main-conversation message for a refactor handed off from a
+// discussion. Carries the anchor's file/line/snapshot context (same framing
+// style as threadHistory) plus the discuss-agent's instruction, so the build
+// agent can locate the code and actually edit it.
+export function refactorPrompt(anchor: Anchor, instruction: string): string {
+	const lines =
+		anchor.endLine !== anchor.startLine
+			? `lines ${anchor.startLine}-${anchor.endLine}`
+			: `line ${anchor.startLine}`;
+	return [
+		`Please refactor ${anchor.path} (${lines}). This was handed off from a code discussion.`,
+		`Reference snippet from commit ${anchor.commitHash.slice(0, 8)} (sandbox ${anchor.sandboxName}, repo ${anchor.repoRoot}):`,
+		"```",
+		anchor.quotedText,
+		"```",
+		`Inspect the snapshot with runCommand if needed: git -C ${anchor.repoRoot} show ${anchor.commitHash}:${anchor.path}`,
+		"",
+		`Refactor request: ${instruction}`,
+	].join("\n");
+}
+
 export function makeId() {
 	return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }

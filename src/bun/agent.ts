@@ -59,9 +59,12 @@ const DISCUSS_SYSTEM_PROMPT = [
 	"listSandboxes). You CANNOT create, modify, or delete files, and you CANNOT create",
 	"or stop sandboxes — those tools are intentionally unavailable here. Use runCommand",
 	"to look at code (e.g. 'git show <hash>:<file>', 'git diff', 'cat', 'grep') and",
-	"answer the user's questions about the change. If the user wants you to actually",
-	"make an edit, explain that this is a discussion and they should ask in the main",
-	"conversation instead of trying to edit from here.",
+	"answer the user's questions about the change. When the user wants the discussed",
+	"code refactored, rewritten, restructured, or optimized, call the `refactor` tool",
+	"with a clear instruction — it hands the work to the session's main build",
+	"conversation where the edit is actually made — then briefly confirm to the user",
+	"that the refactor has been queued there. For anything else you stay read-only and",
+	"must not attempt to edit from here.",
 	"CRITICAL: The ONLY way you learn what a command did is by calling runCommand and",
 	"reading the tool result that comes back. Never invent command output, file",
 	"contents, or 'I ran X and it returned Y' — if no tool result for it exists in this",
@@ -74,7 +77,7 @@ export type AgentMode = "build" | "discuss";
 
 // Tools available in "discuss" mode: read-only inspection only. Everything else
 // (writeFile, editFile, createSandbox, stopSandbox) is withheld.
-const DISCUSS_TOOLS = ["getCurrentTime", "runCommand", "listSandboxes"] as const;
+const DISCUSS_TOOLS = ["getCurrentTime", "runCommand", "listSandboxes", "refactor"] as const;
 
 // The agent's tools. Each has a zod input schema and an `execute` function.
 export const tools = {
@@ -96,6 +99,23 @@ export const tools = {
 				formatted: now.toLocaleString("zh-CN", { timeZone: zone }),
 			};
 		},
+	}),
+	// Available only in "discuss" mode. The discuss-agent is read-only, so it can't
+	// edit the code it's discussing. This tool hands a refactor request off to the
+	// session's main build conversation: the UI watches for the call and fires a real
+	// build turn that does the editing. Execute just echoes the instruction — the
+	// dispatch happens UI-side (the instruction also rides the tool-call event).
+	refactor: tool({
+		description:
+			"Hand off a refactor/rewrite/optimization request for the code under discussion to the session's main build conversation, where it will be carried out as a real editing turn. Call this when the user asks to refactor, rewrite, restructure, or optimize the discussed code (not for questions). Do NOT try to edit here — you are read-only.",
+		inputSchema: z.object({
+			instruction: z
+				.string()
+				.describe(
+					"A clear, self-contained instruction for the build agent: what to change and the goal/constraints. The file, line range, and snapshot commit are attached automatically — don't restate them.",
+				),
+		}),
+		execute: async ({ instruction }) => ({ queued: true, instruction }),
 	}),
 };
 

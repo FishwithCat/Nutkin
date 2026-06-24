@@ -9,6 +9,7 @@ import {
 	Clock,
 	FilePlus,
 	FilePen,
+	Hammer,
 	List,
 	Loader2,
 	Square,
@@ -61,6 +62,8 @@ function toolMeta(tool: ToolEvent): { icon: LucideIcon; summary: string } {
 			return { icon: Square, summary: str(input.name) || "default" };
 		case "listSandboxes":
 			return { icon: List, summary: "" };
+		case "refactor":
+			return { icon: Hammer, summary: str(input.instruction) };
 		default: {
 			const first = Object.values(input).find((v) => typeof v === "string");
 			return { icon: Wrench, summary: str(first) || JSON.stringify(tool.input ?? {}) };

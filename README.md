@@ -202,6 +202,16 @@ edit files or create/stop sandboxes from the side panel. The mode rides on the
 sends `"discuss"` for any anchored turn, and `runAgent` (`src/bun/agent.ts`) both
 filters the tools and swaps in a discussion-focused system prompt.
 
+The discuss-agent does get one write-adjacent tool, `refactor`. When the user asks
+to refactor / rewrite / optimize the discussed code, the agent calls
+`refactor({ instruction })` instead of dead-ending ("ask in the main
+conversation"). The discussion lives in the *same session* as the marked code, so
+`App.tsx` watches for the completed `refactor` call and — once the discussion turn
+finishes — automatically fires a real **build-mode turn in that session's main
+conversation** (`refactorPrompt` in `taskState.ts` re-attaches the anchored file,
+line range, and snapshot commit). The refactor then runs as a normal editing turn
+with diffs; the tool itself never edits, it only hands off the request.
+
 ## How HMR Works
 
 When you run `bun run dev:hmr`:
