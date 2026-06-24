@@ -1,20 +1,26 @@
 import { memo } from "react";
-import type { Anchor, ToolEvent, UIMessage } from "../types";
+import type { Anchor, ReasoningPart, ToolEvent, UIMessage } from "../types";
 import { DiffView, fileDiff, type FileDiff } from "./DiffView";
 import { Markdown } from "./Markdown";
 import { ToolPanel } from "./ToolPanel";
 
-// Split a turn into ordered segments that follow the real stream order: text the
-// model spoke, runs of regular tool calls (grouped into one collapsed panel), and
-// each completed file edit as its own diff card. Tool calls carry `textOffset` —
-// how much text had streamed when they fired — so text is sliced and interleaved at
-// the right spots. Empty slice between two calls ⇒ they stay in one group.
+// Split a turn into ordered segments that follow the real stream order: thinking
+// blocks, text the model spoke, runs of regular tool calls (grouped into one
+// collapsed panel), and each completed file edit as its own diff card. Reasoning
+// blocks and tool calls both carry `textOffset` — how much text had streamed when
+// they fired — so text is sliced and everything interleaves at the right spots.
+// Empty slice between two tool calls ⇒ they stay in one group.
 type Segment =
 	| { kind: "text"; key: string; text: string }
 	| { kind: "tools"; key: string; tools: ToolEvent[] }
-	| { kind: "diff"; key: string; diff: FileDiff };
+	| { kind: "diff"; key: string; diff: FileDiff }
+	| { kind: "reasoning"; key: string; text: string };
 
-function toSegments(tools: ToolEvent[], content: string): Segment[] {
+function toSegments(
+	tools: ToolEvent[],
+	reasoning: ReasoningPart[],
+	content: string,
+): Segment[] {
 	const segments: Segment[] = [];
 	let cursor = 0;
 	const flushText = (upTo: number) => {
@@ -22,15 +28,33 @@ function toSegments(tools: ToolEvent[], content: string): Segment[] {
 		if (text) segments.push({ kind: "text", key: `text-${cursor}`, text });
 		cursor = Math.max(cursor, upTo);
 	};
-	for (const t of tools) {
-		flushText(t.textOffset ?? 0);
-		const diff = fileDiff(t);
-		if (diff) {
-			segments.push({ kind: "diff", key: t.toolCallId, diff });
+	// Merge thinking blocks and tool calls onto one timeline by offset; at the same
+	// offset a thinking block streams before the tool it precedes (reasonFirst).
+	type Marker =
+		| { at: number; reasonFirst: true; part: ReasoningPart; i: number }
+		| { at: number; reasonFirst: false; tool: ToolEvent };
+	const markers: Marker[] = [
+		...reasoning.map(
+			(part, i): Marker => ({ at: part.textOffset, reasonFirst: true, part, i }),
+		),
+		...tools.map(
+			(tool): Marker => ({ at: tool.textOffset ?? 0, reasonFirst: false, tool }),
+		),
+	].sort((a, b) => a.at - b.at || Number(b.reasonFirst) - Number(a.reasonFirst));
+
+	for (const mk of markers) {
+		flushText(mk.at);
+		if (mk.reasonFirst) {
+			segments.push({ kind: "reasoning", key: `reason-${mk.i}`, text: mk.part.text });
 		} else {
-			const last = segments[segments.length - 1];
-			if (last?.kind === "tools") last.tools.push(t);
-			else segments.push({ kind: "tools", key: t.toolCallId, tools: [t] });
+			const diff = fileDiff(mk.tool);
+			if (diff) {
+				segments.push({ kind: "diff", key: mk.tool.toolCallId, diff });
+			} else {
+				const last = segments[segments.length - 1];
+				if (last?.kind === "tools") last.tools.push(mk.tool);
+				else segments.push({ kind: "tools", key: mk.tool.toolCallId, tools: [mk.tool] });
+			}
 		}
 	}
 	flushText(content.length);
@@ -71,25 +95,30 @@ export const MessageBlock = memo(function MessageBlock({
 		);
 	}
 
-	return (
-		<div className="flex gap-3">
-			<div className="w-7 h-7 shrink-0 rounded-lg bg-clay-500 text-white flex items-center justify-center text-xs font-bold mt-0.5">
-				N
-			</div>
-			<div className="min-w-0 flex-1 space-y-3">
-				{message.reasoning && (
-					<details className="text-xs text-stone-500">
-						<summary className="cursor-pointer select-none hover:text-stone-700">
-							思考过程
-						</summary>
-						<pre className="whitespace-pre-wrap mt-1.5 p-3 rounded-lg bg-stone-100 text-stone-500">
-							{message.reasoning}
-						</pre>
-					</details>
-				)}
+	const segments = toSegments(message.tools, message.reasoning, message.content);
+	// The trailing thinking block animates while the turn is still streaming and
+	// nothing has come after it yet.
+	const lastReasoningKey =
+		message.pending && segments[segments.length - 1]?.kind === "reasoning"
+			? segments[segments.length - 1].key
+			: null;
 
-				{toSegments(message.tools, message.content).map((seg) =>
-					seg.kind === "diff" ? (
+	return (
+		<div className="min-w-0 space-y-3">
+				{segments.map((seg) =>
+					seg.kind === "reasoning" ? (
+						<details key={seg.key} className="text-xs text-stone-500">
+							<summary className="cursor-pointer select-none hover:text-stone-700 flex items-center gap-1.5">
+								<span className={seg.key === lastReasoningKey ? "animate-pulse" : ""}>
+									思考过程
+								</span>
+								{seg.key === lastReasoningKey && <Dot />}
+							</summary>
+							<pre className="whitespace-pre-wrap mt-1.5 p-3 rounded-lg bg-stone-100 text-stone-500">
+								{seg.text}
+							</pre>
+						</details>
+					) : seg.kind === "diff" ? (
 						<DiffView
 							key={seg.key}
 							{...seg.diff}
@@ -115,15 +144,34 @@ export const MessageBlock = memo(function MessageBlock({
 					</div>
 				)}
 
-				{message.error && (
-					<div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
-						⚠️ {message.error}
-					</div>
-				)}
-			</div>
+			{message.error && (
+				<div className="flex items-start gap-2 text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+					<WarningIcon />
+					<span>{message.error}</span>
+				</div>
+			)}
 		</div>
 	);
 });
+
+function WarningIcon() {
+	return (
+		<svg
+			className="w-4 h-4 shrink-0 mt-0.5"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="2"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			aria-hidden="true"
+		>
+			<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+			<line x1="12" y1="9" x2="12" y2="13" />
+			<line x1="12" y1="17" x2="12.01" y2="17" />
+		</svg>
+	);
+}
 
 function Dot({ delay = "0ms" }: { delay?: string }) {
 	return (

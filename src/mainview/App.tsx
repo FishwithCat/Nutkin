@@ -200,7 +200,7 @@ function App() {
 			id: makeId(),
 			role: "user",
 			content: trimmed,
-			reasoning: "",
+			reasoning: [],
 			tools: [],
 			pending: false,
 			anchor,
@@ -210,7 +210,7 @@ function App() {
 			id: assistantId,
 			role: "assistant",
 			content: "",
-			reasoning: "",
+			reasoning: [],
 			tools: [],
 			pending: true,
 			anchor,
@@ -484,7 +484,7 @@ function App() {
 							sandboxes={activeTask.sandboxes.map((s) => s.name)}
 							onClose={() => setReviewOpen(false)}
 						/>
-					) : (
+					) : activeTask ? (
 						<>
 							<div
 								ref={scrollRef}
@@ -492,22 +492,18 @@ function App() {
 								className="flex-1 overflow-y-auto"
 							>
 								<div className="w-full px-6 py-6 space-y-4">
-									{activeTask ? (
-										activeTask.messages
-											.filter((m) => !m.anchor)
-											.map((m) => (
-												<MessageBlock
-													key={m.id}
-													message={m}
-													threads={threads}
-													onOpenThread={onOpenThread}
-													onCreateThread={onCreateThread}
-													openAnchor={openAnchor}
-												/>
-											))
-									) : (
-										<EmptyState />
-									)}
+									{activeTask.messages
+										.filter((m) => !m.anchor)
+										.map((m) => (
+											<MessageBlock
+												key={m.id}
+												message={m}
+												threads={threads}
+												onOpenThread={onOpenThread}
+												onCreateThread={onCreateThread}
+												openAnchor={openAnchor}
+											/>
+										))}
 								</div>
 							</div>
 
@@ -517,9 +513,17 @@ function App() {
 								onKeyDown={onKeyDown}
 								onSend={send}
 								onAbort={abort}
-								busy={activeTask?.busy ?? false}
+								busy={activeTask.busy}
 							/>
 						</>
+					) : (
+						<EmptyState
+							input={input}
+							setInput={setInput}
+							onKeyDown={onKeyDown}
+							onSend={send}
+							busy={false}
+						/>
 					)}
 				</main>
 

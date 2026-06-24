@@ -1,4 +1,4 @@
-import { Plus, Trash2 } from "lucide-react";
+import { MessageSquare, Plus, Trash2 } from "lucide-react";
 import type { Task } from "../types";
 
 export function Sidebar({
@@ -30,9 +30,17 @@ export function Sidebar({
 
 			<div className="flex-1 overflow-y-auto px-3 pt-1 pb-4 space-y-1">
 				{tasks.length === 0 ? (
-					<p className="px-3 py-6 text-sm text-stone-400 text-center">
-						还没有任务，点击 + 开始
-					</p>
+					<div className="px-3 py-16 flex flex-col items-center text-center">
+						<div className="w-11 h-11 rounded-xl bg-stone-100 text-stone-400 flex items-center justify-center mb-3">
+							<MessageSquare size={20} aria-hidden="true" />
+						</div>
+						<p className="text-sm font-medium text-stone-600">还没有任务</p>
+						<p className="mt-1 text-xs text-stone-400 leading-relaxed">
+							点击右上角 + 或从右侧输入，
+							<br />
+							新任务会出现在这里。
+						</p>
+					</div>
 				) : (
 					tasks.map((task) => (
 						<TaskCard
