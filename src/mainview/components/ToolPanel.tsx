@@ -44,7 +44,7 @@ function toolMeta(tool: ToolEvent): { icon: LucideIcon; summary: string } {
 		case "createSandbox":
 			return {
 				icon: Box,
-				summary: [str(input.name) || "default", str(input.image) || "alpine"].join(" · "),
+				summary: [str(input.name) || "default", str(input.image)].filter(Boolean).join(" · "),
 			};
 		case "runCommand":
 			return {
