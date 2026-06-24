@@ -120,11 +120,20 @@ export interface PersistedTool {
 	endedAt?: number;
 }
 
+// One thinking block, pinned to the point in the streamed text where it fired
+// (`textOffset` = chars of content streamed when it started), so reasoning
+// interleaves with text and tool calls in true stream order.
+export interface ReasoningPart {
+	text: string;
+	textOffset: number;
+}
+
 export interface PersistedMessage {
 	id: string;
 	role: "user" | "assistant";
 	content: string;
-	reasoning: string;
+	// Old data stored this as a single string; readers normalize (see fromPersisted).
+	reasoning: ReasoningPart[] | string;
 	tools: PersistedTool[];
 	error?: string;
 	// Set on a thread turn — pins it to the diff card / commit it discusses.

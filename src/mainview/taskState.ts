@@ -75,8 +75,23 @@ export function applyEvent(m: UIMessage, event: AgentEvent): UIMessage {
 	switch (event.type) {
 		case "delta":
 			return { ...m, content: m.content + event.text };
-		case "reasoning":
-			return { ...m, reasoning: m.reasoning + event.text };
+		case "reasoning": {
+			// Deltas with no text streamed since the block started extend it; once
+			// content has advanced, a new thinking block opens at that offset.
+			const last = m.reasoning[m.reasoning.length - 1];
+			if (last && last.textOffset === m.content.length)
+				return {
+					...m,
+					reasoning: [
+						...m.reasoning.slice(0, -1),
+						{ ...last, text: last.text + event.text },
+					],
+				};
+			return {
+				...m,
+				reasoning: [...m.reasoning, { text: event.text, textOffset: m.content.length }],
+			};
+		}
 		case "done":
 			// Close out any tool calls left without a result (e.g. the turn was
 			// aborted mid-execution) so their rows stop showing "运行中".
@@ -184,7 +199,17 @@ export function toPersisted(task: Task): PersistedTask {
 // Restore a stored conversation, re-adding runtime flags as idle and rebuilding
 // the sandbox registry from the createSandbox calls in its history.
 export function fromPersisted(task: PersistedTask): Task {
-	const messages = task.messages.map((m) => ({ ...m, pending: false }));
+	const messages = task.messages.map((m) => ({
+		...m,
+		pending: false,
+		// Old sessions stored reasoning as one string — fold it into a single block.
+		reasoning:
+			typeof m.reasoning === "string"
+				? m.reasoning
+					? [{ text: m.reasoning, textOffset: 0 }]
+					: []
+				: m.reasoning,
+	}));
 	return {
 		id: task.id,
 		title: task.title,

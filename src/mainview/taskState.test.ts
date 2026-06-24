@@ -39,7 +39,7 @@ test("non-createSandbox events leave the list untouched", () => {
 });
 
 test("toolCall records textOffset at the current content length", () => {
-	let m: UIMessage = { id: "m1", role: "assistant", content: "", reasoning: "", tools: [], pending: true };
+	let m: UIMessage = { id: "m1", role: "assistant", content: "", reasoning: [], tools: [], pending: true };
 	m = applyEvent(m, { type: "delta", id: "m1", text: "Looking now…" });
 	m = applyEvent(m, {
 		type: "toolCall",
@@ -49,11 +49,23 @@ test("toolCall records textOffset at the current content length", () => {
 	expect(m.tools[0].textOffset).toBe("Looking now…".length);
 });
 
+test("reasoning deltas group into blocks pinned to stream position", () => {
+	let m: UIMessage = { id: "m1", role: "assistant", content: "", reasoning: [], tools: [], pending: true };
+	m = applyEvent(m, { type: "reasoning", id: "m1", text: "think " });
+	m = applyEvent(m, { type: "reasoning", id: "m1", text: "more" }); // same offset → one block
+	m = applyEvent(m, { type: "delta", id: "m1", text: "Answer." });
+	m = applyEvent(m, { type: "reasoning", id: "m1", text: "rethink" }); // content advanced → new block
+	expect(m.reasoning).toEqual([
+		{ text: "think more", textOffset: 0 },
+		{ text: "rethink", textOffset: "Answer.".length },
+	]);
+});
+
 const msg = (tools: UIMessage["tools"]): UIMessage => ({
 	id: "m",
 	role: "assistant",
 	content: "",
-	reasoning: "",
+	reasoning: [],
 	tools,
 	pending: false,
 });

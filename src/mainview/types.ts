@@ -6,6 +6,7 @@ import type {
 	Project,
 	ProjectRepo,
 	ProjectSummary,
+	ReasoningPart,
 	ReviewEntry,
 	ReviewFileContent,
 	ReviewStatus,
@@ -18,6 +19,7 @@ export type {
 	Project,
 	ProjectRepo,
 	ProjectSummary,
+	ReasoningPart,
 	ReviewEntry,
 	ReviewFileContent,
 	ReviewStatus,
@@ -42,7 +44,7 @@ export interface UIMessage {
 	id: string;
 	role: "user" | "assistant";
 	content: string;
-	reasoning: string;
+	reasoning: ReasoningPart[];
 	tools: ToolEvent[];
 	pending: boolean;
 	error?: string;
