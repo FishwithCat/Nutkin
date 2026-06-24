@@ -1,4 +1,5 @@
 import { MessageSquare, Plus, Trash2 } from "lucide-react";
+import { useState } from "react";
 import type { Task } from "../types";
 
 export function Sidebar({
@@ -68,8 +69,10 @@ function TaskCard({
 	onClick: () => void;
 	onDelete: () => void;
 }) {
+	const [confirming, setConfirming] = useState(false);
 	return (
 		<div
+			onMouseLeave={() => setConfirming(false)}
 			className={`group relative rounded-xl transition-colors ${
 				selected ? "bg-clay-50 ring-1 ring-clay-200" : "hover:bg-stone-50"
 			}`}
@@ -93,14 +96,25 @@ function TaskCard({
 					{task.title}
 				</span>
 			</button>
-			<button
-				type="button"
-				onClick={onDelete}
-				title="删除任务（同时移除其沙箱）"
-				className="absolute top-1/2 -translate-y-1/2 right-2 w-6 h-6 rounded-md flex items-center justify-center text-stone-400 opacity-0 group-hover:opacity-100 hover:bg-stone-200 hover:text-red-600 transition"
-			>
-				<Trash2 size={14} aria-hidden="true" />
-			</button>
+			{confirming ? (
+				<button
+					type="button"
+					onClick={onDelete}
+					title="确认删除（同时移除其沙箱）"
+					className="absolute top-1/2 -translate-y-1/2 right-2 h-6 px-2 rounded-md flex items-center text-xs font-medium bg-red-600 text-white hover:bg-red-700 transition"
+				>
+					确认
+				</button>
+			) : (
+				<button
+					type="button"
+					onClick={() => setConfirming(true)}
+					title="删除任务（同时移除其沙箱）"
+					className="absolute top-1/2 -translate-y-1/2 right-2 w-6 h-6 rounded-md flex items-center justify-center text-stone-400 opacity-0 group-hover:opacity-100 hover:bg-stone-200 hover:text-red-600 transition"
+				>
+					<Trash2 size={14} aria-hidden="true" />
+				</button>
+			)}
 		</div>
 	);
 }
