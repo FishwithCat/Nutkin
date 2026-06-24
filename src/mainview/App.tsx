@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { Anchor, ChatMessage, ProjectRepo } from "../shared/rpc";
+import type { Anchor, ChatMessage, Project, ProjectRepo } from "../shared/rpc";
 import {
 	abortTurn,
 	deleteProject,
@@ -29,6 +29,7 @@ import { DiscussionPanel } from "./components/DiscussionPanel";
 import { EmptyState } from "./components/EmptyState";
 import { MessageBlock } from "./components/MessageBlock";
 import { ProjectList } from "./components/ProjectList";
+import { ProjectSettings } from "./components/ProjectSettings";
 import { Sidebar } from "./components/Sidebar";
 import { TaskHeader } from "./components/TaskHeader";
 import { TopBar } from "./components/TopBar";
@@ -38,6 +39,8 @@ function App() {
 	// The open project's id, or null while on the project-list landing page.
 	const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
 	const [showCreate, setShowCreate] = useState(false);
+	// The project whose settings page is open on the landing view (null = closed).
+	const [settingsProjectId, setSettingsProjectId] = useState<string | null>(null);
 	const [tasks, setTasks] = useState<Task[]>([]);
 	const [activeId, setActiveId] = useState<string | null>(null);
 	const [input, setInput] = useState("");
@@ -311,9 +314,20 @@ function App() {
 		openProject(project.id);
 	}
 
+	// Persist edits from the settings page. `...project` overwrites
+	// name/image/repos/updatedAt while keeping the summary's session stats.
+	function updateProject(project: Project) {
+		saveProject(project);
+		setProjects((prev) =>
+			prev.map((p) => (p.id === project.id ? { ...p, ...project } : p)),
+		);
+		setSettingsProjectId(null);
+	}
+
 	function removeProject(id: string) {
 		deleteProject(id); // backend deletes its sessions + sandboxes too
 		setProjects((prev) => prev.filter((p) => p.id !== id));
+		setSettingsProjectId(null);
 		if (activeProjectId === id) gotoProjectList();
 	}
 
@@ -328,15 +342,29 @@ function App() {
 		}
 	}
 
-	// No project open → the project-list landing page.
+	// No project open → the project-list landing page (or a project's settings
+	// page, an exclusive full-screen view over the list).
 	if (!activeProjectId) {
+		const settingsProject = settingsProjectId
+			? projects.find((p) => p.id === settingsProjectId)
+			: null;
+		if (settingsProject) {
+			return (
+				<ProjectSettings
+					project={settingsProject}
+					onClose={() => setSettingsProjectId(null)}
+					onSave={updateProject}
+					onDelete={removeProject}
+				/>
+			);
+		}
 		return (
 			<>
 				<ProjectList
 					projects={projects}
 					onOpen={openProject}
 					onNew={() => setShowCreate(true)}
-					onDelete={removeProject}
+					onSettings={setSettingsProjectId}
 				/>
 				{showCreate && (
 					<CreateProjectModal

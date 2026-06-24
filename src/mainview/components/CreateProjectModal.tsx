@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { GitBranch, Link2, X } from "lucide-react";
 import type { Project, ProjectRepo } from "../types";
-import { makeRepo, repoHostPath } from "../projectUtils";
+import { IMAGE_PRESETS, makeRepo, repoHostPath } from "../projectUtils";
+import { Selector } from "./Selector";
 
 // 新建项目 modal: name a project, paste one or more git URLs (each with an
 // editable default branch), then create. The repo list is the only required
@@ -16,6 +17,10 @@ export function CreateProjectModal({
 	const [name, setName] = useState("");
 	const [url, setUrl] = useState("");
 	const [repos, setRepos] = useState<ProjectRepo[]>([]);
+	// alpine is the default sandbox image; the user can pick another preset or
+	// type a custom one.
+	const [custom, setCustom] = useState(false);
+	const [image, setImage] = useState("alpine");
 
 	function addRepo() {
 		const trimmed = url.trim();
@@ -36,13 +41,24 @@ export function CreateProjectModal({
 		setRepos((prev) => prev.filter((_, j) => j !== i));
 	}
 
+	// Switching the dropdown: a real preset selects it; the sentinel flips to a
+	// free-text field (cleared so the user types fresh).
+	function onSelectImage(value: string) {
+		if (value === "__custom__") {
+			setCustom(true);
+			setImage("");
+		} else {
+			setCustom(false);
+			setImage(value);
+		}
+	}
+
 	const canCreate = repos.length > 0;
 
 	function submit() {
 		if (!canCreate) return;
 		const projectName = name.trim() || repos[0].name;
-		// alpine is the project's default sandbox image.
-		onCreate(projectName, repos, "alpine");
+		onCreate(projectName, repos, image.trim() || "alpine");
 	}
 
 	return (
@@ -150,6 +166,32 @@ export function CreateProjectModal({
 									</div>
 								))}
 							</div>
+						)}
+					</div>
+
+					<div>
+						<label className="block text-sm font-medium text-stone-700 mb-1.5">
+							默认镜像
+						</label>
+						<Selector
+							aria-label="默认镜像"
+							value={custom ? "__custom__" : image}
+							onChange={onSelectImage}
+							options={[
+								...IMAGE_PRESETS.map((preset) => ({
+									value: preset,
+									label: preset,
+								})),
+								{ value: "__custom__", label: "自定义…" },
+							]}
+						/>
+						{custom && (
+							<input
+								value={image}
+								onChange={(e) => setImage(e.target.value)}
+								placeholder="例如 node:20"
+								className="mt-2 w-full rounded-xl border border-stone-200 px-3.5 py-2.5 text-sm text-stone-800 placeholder:text-stone-400 outline-none focus:border-clay-400 focus:ring-1 focus:ring-clay-200 transition"
+							/>
 						)}
 					</div>
 				</div>

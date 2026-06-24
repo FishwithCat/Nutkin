@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { GitBranch, Plus, Search, Trash2 } from "lucide-react";
+import { GitBranch, Plus, Search, Settings } from "lucide-react";
 import type { ProjectSummary } from "../types";
 import { relativeTime } from "../projectUtils";
 
@@ -10,12 +10,12 @@ export function ProjectList({
 	projects,
 	onOpen,
 	onNew,
-	onDelete,
+	onSettings,
 }: {
 	projects: ProjectSummary[];
 	onOpen: (id: string) => void;
 	onNew: () => void;
-	onDelete: (id: string) => void;
+	onSettings: (id: string) => void;
 }) {
 	const [query, setQuery] = useState("");
 
@@ -69,7 +69,7 @@ export function ProjectList({
 								key={project.id}
 								project={project}
 								onOpen={() => onOpen(project.id)}
-								onDelete={() => onDelete(project.id)}
+								onSettings={() => onSettings(project.id)}
 							/>
 						))}
 						<button
@@ -98,18 +98,18 @@ export function ProjectList({
 function ProjectCard({
 	project,
 	onOpen,
-	onDelete,
+	onSettings,
 }: {
 	project: ProjectSummary;
 	onOpen: () => void;
-	onDelete: () => void;
+	onSettings: () => void;
 }) {
 	const primary = project.repos[0];
 	return (
 		<div className="group relative rounded-2xl border border-stone-200 bg-white p-5 hover:border-clay-300 hover:shadow-sm transition cursor-pointer">
 			{/* Full-card click target sits behind the content; the content layer is
 			    click-through (pointer-events-none) so the entire card — padding
-			    included — opens the project. The delete button rides above both. */}
+			    included — opens the project. The settings button rides above both. */}
 			<button
 				type="button"
 				onClick={onOpen}
@@ -118,11 +118,11 @@ function ProjectCard({
 			/>
 			<button
 				type="button"
-				onClick={onDelete}
-				title="删除项目（同时移除其会话与沙箱）"
-				className="absolute top-3 right-3 z-20 w-7 h-7 rounded-lg flex items-center justify-center text-stone-400 opacity-0 group-hover:opacity-100 hover:bg-stone-100 hover:text-red-600 transition"
+				onClick={onSettings}
+				title="项目设置"
+				className="absolute top-3 right-3 z-20 w-7 h-7 rounded-lg flex items-center justify-center text-stone-400 opacity-0 group-hover:opacity-100 hover:bg-stone-100 hover:text-stone-700 transition"
 			>
-				<Trash2 size={14} aria-hidden="true" />
+				<Settings size={14} aria-hidden="true" />
 			</button>
 			<div className="relative z-10 pointer-events-none">
 				<div className="flex items-center gap-3">

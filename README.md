@@ -82,13 +82,20 @@ exactly one project.
 
 - **Landing page** (`ProjectList.tsx`): when no project is open, the app shows
   every project as a card (name, primary repo, session/repo counts, last
-  activity) with a search box and a **新建项目** entry point. The app opens to the
+  activity) with a search box and a **新建项目** entry point. Each card has a
+  **设置** (gear) button that opens its settings page. The app opens to the
   **last project you had open** (persisted via `setLastProject` / `getLastProject`);
   if there is none, it lands here.
 - **Create** (`CreateProjectModal.tsx`): name the project and paste one or more
   Git URLs, each with an editable default branch. The repo list is the only
   required field (the name falls back to the first repo). The new project is
   saved with `saveProject` and opened immediately.
+- **Settings** (`ProjectSettings.tsx`): a full-screen page (reached from a card's
+  gear button) to edit an existing project's name, default sandbox image (a preset
+  dropdown — `IMAGE_PRESETS` — or a custom value), and bound repos. Edits persist
+  via `saveProject` (an upsert that keeps `id`/`createdAt`). A danger zone at the
+  bottom holds the confirmed **删除项目** action that removes the project, its
+  sessions, and their sandboxes.
 - **In-workspace switcher** (`ProjectSwitcher.tsx`, in the top bar): search and
   switch projects, or jump to **新建项目 / 管理全部项目**.
 - **Repos & image reach the agent**: a session's `userMessage` carries its

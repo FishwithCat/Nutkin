@@ -27,6 +27,10 @@ export function makeRepo(url: string, branch = "main"): ProjectRepo {
 	return { url: url.trim(), name: repoDisplayName(url), branch };
 }
 
+// Common sandbox images offered in the project settings dropdown (see the
+// agent's createSandbox examples). Anything else can be typed via "自定义".
+export const IMAGE_PRESETS = ["alpine", "debian", "ubuntu", "python", "node"];
+
 // "刚刚 / N 分钟前 / N 小时前 / N 天前 / 日期" for a ms-epoch timestamp.
 export function relativeTime(ts: number | null): string {
 	if (!ts) return "暂无活动";
