@@ -69,42 +69,30 @@ function TaskCard({
 			<button
 				type="button"
 				onClick={onClick}
-				className="w-full text-left rounded-xl px-3 py-3 pr-9"
+				className="w-full flex items-center gap-2 text-left rounded-xl px-3 h-10 pr-9"
 			>
-				<StatusLabel busy={task.busy} />
-				<p
-					className={`mt-1 text-sm leading-snug ${
+				<span
+					className={`shrink-0 w-1.5 h-1.5 rounded-full ${
+						task.busy ? "bg-clay-500 animate-pulse" : "bg-stone-300"
+					}`}
+					title={task.busy ? "运行中" : "就绪"}
+				/>
+				<span
+					className={`flex-1 truncate text-sm ${
 						selected ? "text-stone-900 font-medium" : "text-stone-700"
 					}`}
 				>
 					{task.title}
-				</p>
+				</span>
 			</button>
 			<button
 				type="button"
 				onClick={onDelete}
 				title="删除任务（同时移除其沙箱）"
-				className="absolute top-2.5 right-2 w-6 h-6 rounded-md flex items-center justify-center text-stone-400 opacity-0 group-hover:opacity-100 hover:bg-stone-200 hover:text-red-600 transition"
+				className="absolute top-1/2 -translate-y-1/2 right-2 w-6 h-6 rounded-md flex items-center justify-center text-stone-400 opacity-0 group-hover:opacity-100 hover:bg-stone-200 hover:text-red-600 transition"
 			>
 				<Trash2 size={14} aria-hidden="true" />
 			</button>
-		</div>
-	);
-}
-
-function StatusLabel({ busy }: { busy: boolean }) {
-	if (busy) {
-		return (
-			<div className="flex items-center gap-1.5 text-xs text-clay-600">
-				<span className="w-1.5 h-1.5 rounded-full bg-clay-500 animate-pulse" />
-				<span>运行中</span>
-			</div>
-		);
-	}
-	return (
-		<div className="flex items-center gap-1.5 text-xs text-stone-400">
-			<span className="w-2.5 h-2.5 rounded-full border border-stone-300" />
-			<span>就绪</span>
 		</div>
 	);
 }
