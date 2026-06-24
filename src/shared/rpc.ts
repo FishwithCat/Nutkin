@@ -16,6 +16,32 @@ export interface ChatMessage {
 	content: string;
 }
 
+/** A git repository bound to a project. */
+export interface ProjectRepo {
+	url: string; // clone URL, e.g. https://github.com/org/repo.git
+	name: string; // display name derived from the URL, e.g. org/repo
+	branch: string; // default branch to work on, e.g. main
+}
+
+/**
+ * A project groups a set of chat sessions around one or more code repositories
+ * and a default sandbox image. Sessions (tasks) belong to exactly one project.
+ */
+export interface Project {
+	id: string;
+	name: string;
+	repos: ProjectRepo[];
+	image: string; // default sandbox image for this project's sessions
+	createdAt: number;
+	updatedAt: number;
+}
+
+/** A project plus the live stats shown on the project list cards. */
+export interface ProjectSummary extends Project {
+	sessionCount: number;
+	lastActivity: number | null; // ms epoch of the newest session, or null
+}
+
 /**
  * A code region under discussion, pinned to the immutable per-turn git commit
  * the change was snapshotted into. The commit lets the agent time-travel the
@@ -83,6 +109,7 @@ export interface PersistedMessage {
 export interface PersistedTask {
 	id: string;
 	title: string;
+	projectId: string; // the project this session belongs to
 	messages: PersistedMessage[];
 }
 
@@ -90,8 +117,12 @@ export type AgentRPC = {
 	// Messages the Bun process receives (sent by the webview).
 	bun: RPCSchema<{
 		requests: {
-			/** Load all stored conversations, newest first. */
-			loadTasks: { params: undefined; response: PersistedTask[] };
+			/** Load every project with its session stats, most recently active first. */
+			loadProjects: { params: undefined; response: ProjectSummary[] };
+			/** Load a project's conversations, newest first. */
+			loadTasks: { params: { projectId: string }; response: PersistedTask[] };
+			/** The id of the last project the user had open, or null. */
+			getLastProject: { params: undefined; response: string | null };
 		};
 		messages: {
 			userMessage: {
@@ -100,7 +131,15 @@ export type AgentRPC = {
 				/** Conversation id; scopes the agent's sandboxes to this session. */
 				sessionId: string;
 				messages: ChatMessage[];
+				/** The session's project context (default image + bound repos). */
+				project?: { name: string; image: string; repos: ProjectRepo[] };
 			};
+			/** Upsert a project. */
+			saveProject: Project;
+			/** Delete a project, its sessions, and their sandboxes. Payload is the project id. */
+			deleteProject: string;
+			/** Remember the last project the user had open. Payload is the project id. */
+			setLastProject: string;
 			/** Upsert a conversation snapshot. */
 			saveTask: PersistedTask;
 			/** Delete a conversation and remove its sandboxes. Payload is the task id. */

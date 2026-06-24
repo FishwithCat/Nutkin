@@ -1,8 +1,14 @@
 // Shared UI state shapes for the chat view. These mirror what the agent streams
 // but carry runtime-only flags (pending/busy) that never get persisted.
-import type { Anchor, Commit } from "../shared/rpc";
+import type {
+	Anchor,
+	Commit,
+	Project,
+	ProjectRepo,
+	ProjectSummary,
+} from "../shared/rpc";
 
-export type { Anchor, Commit };
+export type { Anchor, Commit, Project, ProjectRepo, ProjectSummary };
 
 export interface ToolEvent {
 	toolCallId: string;
@@ -34,6 +40,7 @@ export interface UIMessage {
 export interface Task {
 	id: string;
 	title: string;
+	projectId: string;
 	messages: UIMessage[];
 	busy: boolean;
 }

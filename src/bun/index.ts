@@ -16,7 +16,12 @@ import {
 	stopAllSandboxes,
 	type ChangedFile,
 } from "./sandbox";
-import type { AgentRPC, PersistedTask } from "../shared/rpc";
+import type {
+	AgentRPC,
+	PersistedTask,
+	Project,
+	ProjectSummary,
+} from "../shared/rpc";
 
 // Persisted conversations live in the per-user app data dir.
 mkdirSync(Utils.paths.userData, { recursive: true });
@@ -29,14 +34,106 @@ db.run(
 		updated_at INTEGER NOT NULL
 	)`,
 );
-const upsertTask = db.query(
-	`INSERT INTO tasks (id, title, data, updated_at) VALUES ($id, $title, $data, $now)
-	 ON CONFLICT(id) DO UPDATE SET title = $title, data = $data, updated_at = $now`,
+db.run(
+	`CREATE TABLE IF NOT EXISTS projects (
+		id         TEXT PRIMARY KEY,
+		name       TEXT NOT NULL,
+		repos      TEXT NOT NULL,
+		image      TEXT NOT NULL,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL
+	)`,
 );
-const selectTasks = db.query<{ id: string; title: string; data: string }, []>(
-	"SELECT id, title, data FROM tasks ORDER BY updated_at DESC",
+db.run(
+	`CREATE TABLE IF NOT EXISTS app_state (
+		key   TEXT PRIMARY KEY,
+		value TEXT NOT NULL
+	)`,
+);
+
+// Migration: tasks predate projects, so add the column and back-fill a default
+// project that adopts every orphaned conversation. New columns can't be added
+// twice, so guard on the current schema.
+const hasProjectId = db
+	.query<{ name: string }, []>("PRAGMA table_info(tasks)")
+	.all()
+	.some((c) => c.name === "project_id");
+if (!hasProjectId) {
+	db.run("ALTER TABLE tasks ADD COLUMN project_id TEXT");
+}
+const orphans = db
+	.query<{ n: number }, []>(
+		"SELECT COUNT(*) AS n FROM tasks WHERE project_id IS NULL OR project_id = ''",
+	)
+	.get();
+if (orphans && orphans.n > 0) {
+	const now = Date.now();
+	const defaultId = "default";
+	db.query(
+		`INSERT INTO projects (id, name, repos, image, created_at, updated_at)
+		 VALUES ($id, $name, $repos, $image, $now, $now)
+		 ON CONFLICT(id) DO NOTHING`,
+	).run({
+		$id: defaultId,
+		$name: "默认项目",
+		$repos: "[]",
+		$image: "alpine",
+		$now: now,
+	});
+	db.query(
+		"UPDATE tasks SET project_id = $id WHERE project_id IS NULL OR project_id = ''",
+	).run({ $id: defaultId });
+}
+
+const upsertTask = db.query(
+	`INSERT INTO tasks (id, title, project_id, data, updated_at)
+	 VALUES ($id, $title, $project_id, $data, $now)
+	 ON CONFLICT(id) DO UPDATE SET title = $title, project_id = $project_id, data = $data, updated_at = $now`,
+);
+const selectTasks = db.query<
+	{ id: string; title: string; project_id: string; data: string },
+	{ $project_id: string }
+>(
+	"SELECT id, title, project_id, data FROM tasks WHERE project_id = $project_id ORDER BY updated_at DESC",
+);
+const selectTaskIds = db.query<{ id: string }, { $project_id: string }>(
+	"SELECT id FROM tasks WHERE project_id = $project_id",
 );
 const deleteTaskRow = db.query("DELETE FROM tasks WHERE id = $id");
+
+const upsertProject = db.query(
+	`INSERT INTO projects (id, name, repos, image, created_at, updated_at)
+	 VALUES ($id, $name, $repos, $image, $created_at, $updated_at)
+	 ON CONFLICT(id) DO UPDATE SET name = $name, repos = $repos, image = $image, updated_at = $updated_at`,
+);
+const selectProjects = db.query<
+	{
+		id: string;
+		name: string;
+		repos: string;
+		image: string;
+		created_at: number;
+		updated_at: number;
+		session_count: number;
+		last_activity: number | null;
+	},
+	[]
+>(
+	`SELECT p.id, p.name, p.repos, p.image, p.created_at, p.updated_at,
+	        COUNT(t.id) AS session_count, MAX(t.updated_at) AS last_activity
+	 FROM projects p LEFT JOIN tasks t ON t.project_id = p.id
+	 GROUP BY p.id
+	 ORDER BY (last_activity IS NULL), last_activity DESC, p.updated_at DESC`,
+);
+const deleteProjectRow = db.query("DELETE FROM projects WHERE id = $id");
+
+const getState = db.query<{ value: string }, { $key: string }>(
+	"SELECT value FROM app_state WHERE key = $key",
+);
+const setState = db.query(
+	`INSERT INTO app_state (key, value) VALUES ($key, $value)
+	 ON CONFLICT(key) DO UPDATE SET value = $value`,
+);
 
 // In-flight agent turns, keyed by assistantId, so the webview can abort them.
 const running = new Map<string, AbortController>();
@@ -68,18 +165,55 @@ const rpc = BrowserView.defineRPC<AgentRPC>({
 	maxRequestTime: Infinity,
 	handlers: {
 		requests: {
-			loadTasks: (): PersistedTask[] =>
-				selectTasks.all().map((row) => ({
+			loadProjects: (): ProjectSummary[] =>
+				selectProjects.all().map((row) => ({
+					id: row.id,
+					name: row.name,
+					repos: JSON.parse(row.repos),
+					image: row.image,
+					createdAt: row.created_at,
+					updatedAt: row.updated_at,
+					sessionCount: row.session_count,
+					lastActivity: row.last_activity,
+				})),
+			loadTasks: ({ projectId }): PersistedTask[] =>
+				selectTasks.all({ $project_id: projectId }).map((row) => ({
 					id: row.id,
 					title: row.title,
+					projectId: row.project_id,
 					messages: JSON.parse(row.data),
 				})),
+			getLastProject: (): string | null =>
+				getState.get({ $key: "lastProjectId" })?.value ?? null,
 		},
 		messages: {
+			saveProject: (project: Project) => {
+				upsertProject.run({
+					$id: project.id,
+					$name: project.name,
+					$repos: JSON.stringify(project.repos),
+					$image: project.image,
+					$created_at: project.createdAt,
+					$updated_at: project.updatedAt,
+				});
+			},
+			deleteProject: (id) => {
+				// Tear down every session in the project (rows + sandboxes), then the
+				// project itself — fire and forget for the sandbox cleanup.
+				for (const { id: taskId } of selectTaskIds.all({ $project_id: id })) {
+					deleteTaskRow.run({ $id: taskId });
+					void removeSessionSandboxes(taskId);
+				}
+				deleteProjectRow.run({ $id: id });
+			},
+			setLastProject: (id) => {
+				setState.run({ $key: "lastProjectId", $value: id });
+			},
 			saveTask: (task) => {
 				upsertTask.run({
 					$id: task.id,
 					$title: task.title,
+					$project_id: task.projectId,
 					$data: JSON.stringify(task.messages),
 					$now: Date.now(),
 				});
@@ -89,7 +223,7 @@ const rpc = BrowserView.defineRPC<AgentRPC>({
 				// Tear down the chat's sandboxes (rootfs included) — fire and forget.
 				void removeSessionSandboxes(id);
 			},
-			userMessage: ({ assistantId, sessionId, messages }) => {
+			userMessage: ({ assistantId, sessionId, messages, project }) => {
 				const modelMessages = messages as ModelMessage[];
 				const controller = new AbortController();
 				running.set(assistantId, controller);
@@ -101,6 +235,7 @@ const rpc = BrowserView.defineRPC<AgentRPC>({
 				void runAgent(
 					sessionId,
 					modelMessages,
+					project,
 					{
 						onText: (text) => rpc.send.assistantDelta({ id: assistantId, text }),
 						onReasoning: (text) =>

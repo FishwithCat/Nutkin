@@ -16,6 +16,14 @@ import {
 	stopSandbox,
 	writeFile,
 } from "./sandbox";
+import type { ProjectRepo } from "../shared/rpc";
+
+/** Project context for a session: default sandbox image + bound repositories. */
+export interface ProjectContext {
+	name: string;
+	image: string;
+	repos: ProjectRepo[];
+}
 
 // Bun auto-loads .env, so DEEPSEEK_API_KEY is picked up automatically by the
 // provider. Override the model with DEEPSEEK_MODEL (e.g. "deepseek-reasoner").
@@ -64,11 +72,13 @@ export const tools = {
 };
 
 // Sandbox tools are built per session so each chat's sandboxes stay isolated.
-function sandboxTools(sessionId: string) {
+// `defaultImage` comes from the session's project (falling back to alpine), so a
+// createSandbox call that doesn't name an image boots the project's image.
+function sandboxTools(sessionId: string, defaultImage = "alpine") {
 	return {
 		createSandbox: tool({
 			description:
-				"Create an isolated Linux sandbox (microVM) in this session. Boot it before running commands. Names must be unique within the session.",
+				`Create an isolated Linux sandbox (microVM) in this session. Boot it before running commands. Names must be unique within the session. Defaults to the project image ('${defaultImage}') when no image is given.`,
 			inputSchema: z.object({
 				name: z
 					.string()
@@ -77,9 +87,9 @@ function sandboxTools(sessionId: string) {
 				image: z
 					.string()
 					.optional()
-					.describe("OCI image to boot, e.g. 'alpine', 'python', 'debian'. Defaults to 'alpine'."),
+					.describe(`OCI image to boot, e.g. 'alpine', 'python', 'debian'. Defaults to the project image ('${defaultImage}').`),
 			}),
-			execute: ({ name = "default", image = "alpine" }) =>
+			execute: ({ name = "default", image = defaultImage }) =>
 				createSandbox(sessionId, name, image),
 		}),
 		runCommand: tool({
@@ -166,6 +176,27 @@ function sandboxTools(sessionId: string) {
 	};
 }
 
+// Append the session's project context to the base prompt: the default sandbox
+// image and any bound repositories the agent can clone on demand.
+function buildSystemPrompt(project?: ProjectContext): string {
+	if (!project) return SYSTEM_PROMPT;
+	const lines = [
+		SYSTEM_PROMPT,
+		"",
+		`This session belongs to the project "${project.name}". New sandboxes default to the "${project.image}" image.`,
+	];
+	if (project.repos.length > 0) {
+		lines.push(
+			"The project is bound to these git repositories. When you need their code,",
+			"clone one into a sandbox with runCommand (e.g. `git clone <url> -b <branch>`):",
+			...project.repos.map(
+				(r) => `- ${r.name} — ${r.url} (branch ${r.branch})`,
+			),
+		);
+	}
+	return lines.join("\n");
+}
+
 export interface AgentEvents {
 	onText: (text: string) => void;
 	onReasoning: (text: string) => void;
@@ -183,6 +214,7 @@ export interface AgentEvents {
 export async function runAgent(
 	sessionId: string,
 	messages: ModelMessage[],
+	project: ProjectContext | undefined,
 	events: AgentEvents,
 	signal?: AbortSignal,
 ): Promise<void> {
@@ -197,9 +229,9 @@ export async function runAgent(
 	try {
 		const result = streamText({
 			model: deepseek(MODEL),
-			system: SYSTEM_PROMPT,
+			system: buildSystemPrompt(project),
 			messages,
-			tools: { ...tools, ...sandboxTools(sessionId) },
+			tools: { ...tools, ...sandboxTools(sessionId, project?.image) },
 			// The agentic loop: keep taking steps (model call -> tool calls ->
 			// model call ...) until the model stops or we hit 50 steps.
 			stopWhen: stepCountIs(50),

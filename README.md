@@ -74,13 +74,40 @@ browser: WKWebView ignores `target="_blank"`, so clicks are routed over RPC
 (`openExternal`) to the Bun process, which calls `Utils.openExternal` after an
 http/https scheme check.
 
+## Projects
+
+A **项目 (project)** groups a set of chat sessions around one or more code
+repositories and a default sandbox image (**alpine**). Every session belongs to
+exactly one project.
+
+- **Landing page** (`ProjectList.tsx`): when no project is open, the app shows
+  every project as a card (name, primary repo, session/repo counts, last
+  activity) with a search box and a **新建项目** entry point. The app opens to the
+  **last project you had open** (persisted via `setLastProject` / `getLastProject`);
+  if there is none, it lands here.
+- **Create** (`CreateProjectModal.tsx`): name the project and paste one or more
+  Git URLs, each with an editable default branch. The repo list is the only
+  required field (the name falls back to the first repo). The new project is
+  saved with `saveProject` and opened immediately.
+- **In-workspace switcher** (`ProjectSwitcher.tsx`, in the top bar): search and
+  switch projects, or jump to **新建项目 / 管理全部项目**.
+- **Repos & image reach the agent**: a session's `userMessage` carries its
+  project context. `buildSystemPrompt` in `src/bun/agent.ts` appends the bound
+  repositories (which the agent can `git clone` on demand) and makes the
+  project's image the default for `createSandbox`.
+
+Projects live in a `projects` table; `tasks` gained a `project_id` column. On
+first run after upgrading, any pre-project conversations are migrated into a
+`默认项目`. Deleting a project removes its sessions and their sandboxes.
+
 ## Sessions
 
 Conversations are stored in `bun:sqlite` so they survive restarts. The webview
-ships each finished task to the Bun process (`saveTask`) and loads them on
-startup (`loadTasks`); the agent itself stays stateless. The database lives at
-`<userData>/sessions.db` (macOS: `~/Library/Application Support/<id>/<channel>/`),
-one row per conversation with the messages as a JSON blob.
+ships each finished task to the Bun process (`saveTask`) and loads the **active
+project's** sessions when it opens (`loadTasks(projectId)`); the agent itself
+stays stateless. The database lives at `<userData>/sessions.db` (macOS:
+`~/Library/Application Support/<id>/<channel>/`), one row per conversation with
+the messages as a JSON blob and a `project_id` foreign key.
 
 ## Sandboxes
 

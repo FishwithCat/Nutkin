@@ -104,6 +104,7 @@ export function toPersisted(task: Task): PersistedTask {
 	return {
 		id: task.id,
 		title: task.title,
+		projectId: task.projectId,
 		messages: task.messages.map((m) => ({
 			id: m.id,
 			role: m.role,
@@ -122,6 +123,7 @@ export function fromPersisted(task: PersistedTask): Task {
 	return {
 		id: task.id,
 		title: task.title,
+		projectId: task.projectId,
 		busy: false,
 		messages: task.messages.map((m) => ({ ...m, pending: false })),
 	};

@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { Anchor, ChatMessage } from "../shared/rpc";
+import type { Anchor, ChatMessage, ProjectRepo } from "../shared/rpc";
 import {
 	abortTurn,
+	deleteProject,
 	deleteTask,
+	getLastProject,
+	loadProjects,
 	loadTasks,
+	saveProject,
 	saveTask,
 	sendUserMessage,
+	setLastProject,
 	subscribe,
 } from "./rpc";
 import type { AgentEvent } from "./rpc";
@@ -17,16 +22,22 @@ import {
 	threadHistory,
 	toPersisted,
 } from "./taskState";
-import type { Task, UIMessage } from "./types";
+import type { ProjectSummary, Task, UIMessage } from "./types";
 import { Composer } from "./components/Composer";
+import { CreateProjectModal, buildProject } from "./components/CreateProjectModal";
 import { DiscussionPanel } from "./components/DiscussionPanel";
 import { EmptyState } from "./components/EmptyState";
 import { MessageBlock } from "./components/MessageBlock";
+import { ProjectList } from "./components/ProjectList";
 import { Sidebar } from "./components/Sidebar";
 import { TaskHeader } from "./components/TaskHeader";
 import { TopBar } from "./components/TopBar";
 
 function App() {
+	const [projects, setProjects] = useState<ProjectSummary[]>([]);
+	// The open project's id, or null while on the project-list landing page.
+	const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+	const [showCreate, setShowCreate] = useState(false);
 	const [tasks, setTasks] = useState<Task[]>([]);
 	const [activeId, setActiveId] = useState<string | null>(null);
 	const [input, setInput] = useState("");
@@ -41,14 +52,31 @@ function App() {
 	const stickRef = useRef(true);
 
 	const activeTask = tasks.find((t) => t.id === activeId) ?? null;
+	const activeProject =
+		projects.find((p) => p.id === activeProjectId) ?? null;
 
-	// Load persisted conversations once on mount.
-	useEffect(() => {
-		loadTasks().then((stored) => {
+	// Open a project's workspace: load its sessions, remember it as the last
+	// project, and switch the view. Seeds the save cache so freshly-loaded tasks
+	// aren't re-persisted on first render.
+	const openProject = useCallback((id: string) => {
+		setActiveProjectId(id);
+		setLastProject(id);
+		setActiveId(null);
+		loadTasks(id).then((stored) => {
 			for (const t of stored) savedRef.current.set(t.id, JSON.stringify(t));
 			setTasks(stored.map(fromPersisted));
 		});
 	}, []);
+
+	// Bootstrap: load every project, then reopen the last one (if it still
+	// exists), otherwise land on the project list.
+	useEffect(() => {
+		(async () => {
+			const [list, lastId] = await Promise.all([loadProjects(), getLastProject()]);
+			setProjects(list);
+			if (lastId && list.some((p) => p.id === lastId)) openProject(lastId);
+		})();
+	}, [openProject]);
 
 	// Persist idle tasks whose content changed. Busy tasks are skipped — their
 	// completed turn is saved when the stream ends (busy flips false).
@@ -121,7 +149,16 @@ function App() {
 	// message was actually sent (false if empty or the task is busy).
 	function sendMessage(text: string, anchor?: Anchor): boolean {
 		const trimmed = text.trim();
-		if (!trimmed || activeTask?.busy) return false;
+		if (!trimmed || activeTask?.busy || !activeProjectId) return false;
+
+		// Project context handed to the agent: default sandbox image + bound repos.
+		const projectCtx = activeProject
+			? {
+					name: activeProject.name,
+					image: activeProject.image,
+					repos: activeProject.repos,
+				}
+			: undefined;
 
 		// A main turn pulls the view down; a thread reply renders in its card, so
 		// it shouldn't yank the main transcript around.
@@ -153,13 +190,19 @@ function App() {
 			const task: Task = {
 				id: makeId(),
 				title: deriveTitle(trimmed),
+				projectId: activeProjectId,
 				messages: [userMsg, assistantMsg],
 				busy: true,
 			};
 			setTasks((prev) => [task, ...prev]);
 			setActiveId(task.id);
 			setInput("");
-			sendUserMessage(assistantId, task.id, [{ role: "user", content: trimmed }]);
+			sendUserMessage(
+				assistantId,
+				task.id,
+				[{ role: "user", content: trimmed }],
+				projectCtx,
+			);
 			return true;
 		}
 
@@ -181,7 +224,7 @@ function App() {
 			),
 		);
 		if (!anchor) setInput("");
-		sendUserMessage(assistantId, activeTask.id, history);
+		sendUserMessage(assistantId, activeTask.id, history, projectCtx);
 		return true;
 	}
 
@@ -244,6 +287,36 @@ function App() {
 		deleteTask(id); // backend deletes the row and removes its sandboxes
 	}
 
+	// Leave the workspace for the project list, refreshing each project's stats
+	// (session counts / last activity may have changed while a project was open).
+	function gotoProjectList() {
+		setActiveProjectId(null);
+		setActiveId(null);
+		loadProjects().then(setProjects);
+	}
+
+	// Create a project from the modal, persist it, and open its (empty) workspace.
+	function createProject(
+		name: string,
+		repos: ProjectRepo[],
+		image: string,
+	) {
+		const project = buildProject(makeId(), name, repos, image);
+		saveProject(project);
+		setProjects((prev) => [
+			{ ...project, sessionCount: 0, lastActivity: null },
+			...prev,
+		]);
+		setShowCreate(false);
+		openProject(project.id);
+	}
+
+	function removeProject(id: string) {
+		deleteProject(id); // backend deletes its sessions + sandboxes too
+		setProjects((prev) => prev.filter((p) => p.id !== id));
+		if (activeProjectId === id) gotoProjectList();
+	}
+
 	function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
 		// During IME composition (e.g. Chinese pinyin) Enter confirms the
 		// candidate, not the message. WebKit may clear isComposing before this
@@ -255,9 +328,35 @@ function App() {
 		}
 	}
 
+	// No project open → the project-list landing page.
+	if (!activeProjectId) {
+		return (
+			<>
+				<ProjectList
+					projects={projects}
+					onOpen={openProject}
+					onNew={() => setShowCreate(true)}
+					onDelete={removeProject}
+				/>
+				{showCreate && (
+					<CreateProjectModal
+						onClose={() => setShowCreate(false)}
+						onCreate={createProject}
+					/>
+				)}
+			</>
+		);
+	}
+
 	return (
 		<div className="flex flex-col h-screen bg-stone-50 text-stone-800">
-			<TopBar />
+			<TopBar
+				projects={projects}
+				activeProjectId={activeProjectId}
+				onSwitch={openProject}
+				onNew={() => setShowCreate(true)}
+				onManage={gotoProjectList}
+			/>
 
 			<div className="flex-1 flex min-h-0">
 				<Sidebar
@@ -316,6 +415,13 @@ function App() {
 					/>
 				)}
 			</div>
+
+			{showCreate && (
+				<CreateProjectModal
+					onClose={() => setShowCreate(false)}
+					onCreate={createProject}
+				/>
+			)}
 		</div>
 	);
 }

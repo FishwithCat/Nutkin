@@ -6,6 +6,9 @@ import type {
 	ChatMessage,
 	Commit,
 	PersistedTask,
+	Project,
+	ProjectRepo,
+	ProjectSummary,
 	ToolCallInfo,
 	ToolResultInfo,
 } from "../shared/rpc";
@@ -58,8 +61,9 @@ export function sendUserMessage(
 	assistantId: string,
 	sessionId: string,
 	messages: ChatMessage[],
+	project?: { name: string; image: string; repos: ProjectRepo[] },
 ) {
-	rpc.send.userMessage({ assistantId, sessionId, messages });
+	rpc.send.userMessage({ assistantId, sessionId, messages, project });
 }
 
 /** Abort the in-flight agent turn streaming into `assistantId`. */
@@ -72,9 +76,34 @@ export function openExternal(url: string) {
 	rpc.send.openExternal(url);
 }
 
-/** Load all stored conversations, newest first. */
-export function loadTasks(): Promise<PersistedTask[]> {
-	return rpc.request.loadTasks();
+/** Load a project's conversations, newest first. */
+export function loadTasks(projectId: string): Promise<PersistedTask[]> {
+	return rpc.request.loadTasks({ projectId });
+}
+
+/** Load every project with its session stats, most recently active first. */
+export function loadProjects(): Promise<ProjectSummary[]> {
+	return rpc.request.loadProjects();
+}
+
+/** Upsert a project. */
+export function saveProject(project: Project) {
+	rpc.send.saveProject(project);
+}
+
+/** Delete a project, its sessions, and their sandboxes. */
+export function deleteProject(id: string) {
+	rpc.send.deleteProject(id);
+}
+
+/** Remember the last project the user had open. */
+export function setLastProject(id: string) {
+	rpc.send.setLastProject(id);
+}
+
+/** The id of the last project the user had open, or null. */
+export function getLastProject(): Promise<string | null> {
+	return rpc.request.getLastProject();
 }
 
 /** Persist a conversation snapshot. */
