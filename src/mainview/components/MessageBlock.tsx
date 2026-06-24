@@ -79,12 +79,6 @@ export const MessageBlock = memo(function MessageBlock({
 	openAnchor: Anchor | null;
 }) {
 	const isUser = message.role === "user";
-	const empty =
-		!isUser &&
-		message.content.length === 0 &&
-		message.tools.length === 0 &&
-		message.reasoning.length === 0 &&
-		!message.error;
 
 	if (isUser) {
 		return (
