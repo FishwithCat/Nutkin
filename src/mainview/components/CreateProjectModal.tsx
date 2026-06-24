@@ -4,9 +4,10 @@ import type { Project, ProjectRepo } from "../types";
 import { IMAGE_PRESETS, makeRepo, repoHostPath } from "../projectUtils";
 import { Selector } from "./Selector";
 
-// 新建项目 modal: name a project, paste one or more git URLs (each with an
-// editable default branch), then create. The repo list is the only required
-// field — a project with no name falls back to its first repo's display name.
+// 新建项目 modal: name a project, optionally paste one or more git URLs (each
+// with an editable default branch), then create. Repos are optional; a project
+// with no name falls back to its first repo's display name, so creation needs
+// at least a name or one repo.
 export function CreateProjectModal({
 	onClose,
 	onCreate,
@@ -53,7 +54,8 @@ export function CreateProjectModal({
 		}
 	}
 
-	const canCreate = repos.length > 0;
+	// repos are optional; we just need *something* to name the project by.
+	const canCreate = name.trim().length > 0 || repos.length > 0;
 
 	function submit() {
 		if (!canCreate) return;
@@ -99,8 +101,8 @@ export function CreateProjectModal({
 						<div className="flex items-center justify-between mb-1.5">
 							<label className="text-sm font-medium text-stone-700">
 								代码库{" "}
-								<span className="ml-1 rounded bg-clay-100 px-1.5 py-0.5 text-xs font-medium text-clay-700">
-									必填
+								<span className="ml-1 rounded bg-stone-100 px-1.5 py-0.5 text-xs font-medium text-stone-500">
+									可选
 								</span>
 							</label>
 							<span className="text-xs text-stone-400">粘贴 Git URL 添加，可多个</span>
