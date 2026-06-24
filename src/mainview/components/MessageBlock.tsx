@@ -1,4 +1,5 @@
-import { memo } from "react";
+import { memo, useState } from "react";
+import { Brain, ChevronRight } from "lucide-react";
 import type { Anchor, ReasoningPart, ToolEvent, UIMessage } from "../types";
 import { DiffView, fileDiff, type FileDiff } from "./DiffView";
 import { Markdown } from "./Markdown";
@@ -107,17 +108,11 @@ export const MessageBlock = memo(function MessageBlock({
 		<div className="min-w-0 space-y-3">
 				{segments.map((seg) =>
 					seg.kind === "reasoning" ? (
-						<details key={seg.key} className="text-xs text-stone-500">
-							<summary className="cursor-pointer select-none hover:text-stone-700 flex items-center gap-1.5">
-								<span className={seg.key === lastReasoningKey ? "animate-pulse" : ""}>
-									思考过程
-								</span>
-								{seg.key === lastReasoningKey && <Dot />}
-							</summary>
-							<pre className="whitespace-pre-wrap mt-1.5 p-3 rounded-lg bg-stone-100 text-stone-500">
-								{seg.text}
-							</pre>
-						</details>
+						<ReasoningPanel
+							key={seg.key}
+							text={seg.text}
+							live={seg.key === lastReasoningKey}
+						/>
 					) : seg.kind === "diff" ? (
 						<DiffView
 							key={seg.key}
@@ -153,6 +148,38 @@ export const MessageBlock = memo(function MessageBlock({
 		</div>
 	);
 });
+
+// A thinking block styled like ToolPanel: a bordered card whose header toggles
+// the reasoning text. While the turn is still streaming into this block (`live`)
+// the title pulses and a dot blinks, matching the tool panel's "运行中" feel.
+function ReasoningPanel({ text, live }: { text: string; live: boolean }) {
+	const [open, setOpen] = useState(false);
+	return (
+		<div className="rounded-xl border border-stone-200 bg-white overflow-hidden">
+			<button
+				type="button"
+				onClick={() => setOpen((v) => !v)}
+				className="w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-stone-50 transition-colors"
+			>
+				<Brain size={14} className="shrink-0 text-stone-400" aria-hidden="true" />
+				<span className={`min-w-0 flex-1 truncate text-sm font-medium text-stone-700 ${live ? "animate-pulse" : ""}`}>
+					{text}
+				</span>
+				{live && <Dot />}
+				<ChevronRight
+					size={14}
+					className={`ml-auto shrink-0 text-stone-400 transition-transform ${open ? "rotate-90" : ""}`}
+					aria-hidden="true"
+				/>
+			</button>
+			{open && (
+				<pre className="whitespace-pre-wrap border-t border-stone-100 px-4 py-3 text-xs leading-relaxed text-stone-500">
+					{text}
+				</pre>
+			)}
+		</div>
+	);
+}
 
 function WarningIcon() {
 	return (
