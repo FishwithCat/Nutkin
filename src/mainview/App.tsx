@@ -351,6 +351,9 @@ function App() {
 	}
 
 	function removeTask(id: string) {
+		const task = tasks.find((t) => t.id === id);
+		if (!confirm(`删除任务「${task?.title ?? id}」？同时会移除其沙箱，且无法撤销。`))
+			return;
 		setTasks((prev) => prev.filter((t) => t.id !== id));
 		savedRef.current.delete(id);
 		if (activeId === id) setActiveId(null);
