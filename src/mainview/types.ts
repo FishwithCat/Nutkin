@@ -6,9 +6,10 @@ import type {
 	Project,
 	ProjectRepo,
 	ProjectSummary,
+	SessionSandbox,
 } from "../shared/rpc";
 
-export type { Anchor, Commit, Project, ProjectRepo, ProjectSummary };
+export type { Anchor, Commit, Project, ProjectRepo, ProjectSummary, SessionSandbox };
 
 export interface ToolEvent {
 	toolCallId: string;
@@ -43,4 +44,7 @@ export interface Task {
 	projectId: string;
 	messages: UIMessage[];
 	busy: boolean;
+	// Sandboxes created in this session (name + purpose), derived from
+	// createSandbox tool calls and replayed into the agent's prompt.
+	sandboxes: SessionSandbox[];
 }

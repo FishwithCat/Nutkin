@@ -212,6 +212,7 @@ function App() {
 				projectId: activeProjectId,
 				messages: [userMsg, assistantMsg],
 				busy: true,
+				sandboxes: [],
 			};
 			setTasks((prev) => [task, ...prev]);
 			setActiveId(task.id);
@@ -221,6 +222,8 @@ function App() {
 				task.id,
 				[{ role: "user", content: trimmed }],
 				projectCtx,
+				"build",
+				[],
 			);
 			return true;
 		}
@@ -251,6 +254,7 @@ function App() {
 			history,
 			projectCtx,
 			anchor ? "discuss" : "build",
+			activeTask.sandboxes,
 		);
 		return true;
 	}

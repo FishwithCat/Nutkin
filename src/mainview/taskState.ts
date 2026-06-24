@@ -2,7 +2,7 @@
 // message, how a task round-trips to persistence, and how an event is routed to
 // the task that owns its target message. Kept free of React so it can be reused
 // and reasoned about on its own.
-import type { Anchor, ChatMessage, PersistedTask } from "../shared/rpc";
+import type { Anchor, ChatMessage, PersistedTask, SessionSandbox } from "../shared/rpc";
 import type { AgentEvent } from "./rpc";
 import type { Task, UIMessage } from "./types";
 
@@ -120,12 +120,32 @@ export function applyEvent(m: UIMessage, event: AgentEvent): UIMessage {
 	}
 }
 
+// Fold a createSandbox tool call into the session's sandbox registry: add the
+// sandbox when its name is new, or refresh its description when a new non-empty
+// one is given. Any other event leaves the list (referentially) untouched.
+export function reduceSandboxes(
+	sandboxes: SessionSandbox[],
+	event: AgentEvent,
+): SessionSandbox[] {
+	if (event.type !== "toolCall" || event.call.toolName !== "createSandbox")
+		return sandboxes;
+	const input = event.call.input as { name?: string; description?: string } | undefined;
+	const name = input?.name ?? "default";
+	const description = input?.description ?? "";
+	const existing = sandboxes.find((s) => s.name === name);
+	if (!existing) return [...sandboxes, { name, description }];
+	if (description && description !== existing.description)
+		return sandboxes.map((s) => (s.name === name ? { ...s, description } : s));
+	return sandboxes;
+}
+
 // Drop runtime-only flags before persisting.
 export function toPersisted(task: Task): PersistedTask {
 	return {
 		id: task.id,
 		title: task.title,
 		projectId: task.projectId,
+		sandboxes: task.sandboxes,
 		messages: task.messages.map((m) => ({
 			id: m.id,
 			role: m.role,
@@ -146,6 +166,7 @@ export function fromPersisted(task: PersistedTask): Task {
 		title: task.title,
 		projectId: task.projectId,
 		busy: false,
+		sandboxes: task.sandboxes ?? [],
 		messages: task.messages.map((m) => ({ ...m, pending: false })),
 	};
 }
@@ -173,6 +194,6 @@ export function routeEvent(tasks: Task[], event: AgentEvent): Task[] {
 		);
 		const busy =
 			event.type === "done" || event.type === "error" ? false : task.busy;
-		return { ...task, messages, busy };
+		return { ...task, messages, busy, sandboxes: reduceSandboxes(task.sandboxes, event) };
 	});
 }

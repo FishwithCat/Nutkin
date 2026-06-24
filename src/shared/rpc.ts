@@ -67,6 +67,12 @@ export interface Commit {
 	commitHash: string;
 }
 
+/** A sandbox the session has created, tracked so the agent reuses it by name. */
+export interface SessionSandbox {
+	name: string;
+	description: string;
+}
+
 /** A tool invocation surfaced to the UI so the agent's steps are visible. */
 export interface ToolCallInfo {
 	id: string;
@@ -111,6 +117,9 @@ export interface PersistedTask {
 	title: string;
 	projectId: string; // the project this session belongs to
 	messages: PersistedMessage[];
+	// Sandboxes this session has created (name + purpose), so the agent reuses
+	// them by name instead of spawning duplicates. Derived from createSandbox.
+	sandboxes?: SessionSandbox[];
 }
 
 export type AgentRPC = {
@@ -133,6 +142,8 @@ export type AgentRPC = {
 				messages: ChatMessage[];
 				/** The session's project context (default image + bound repos). */
 				project?: { name: string; image: string; repos: ProjectRepo[] };
+				/** Sandboxes already created in this session, injected into the prompt. */
+				sandboxes?: SessionSandbox[];
 				/**
 				 * How the turn runs. "discuss" (thread turns hanging off a diff card)
 				 * gives the agent a read-only tool set — no file edits, no sandbox

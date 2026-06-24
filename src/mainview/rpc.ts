@@ -9,6 +9,7 @@ import type {
 	Project,
 	ProjectRepo,
 	ProjectSummary,
+	SessionSandbox,
 	ToolCallInfo,
 	ToolResultInfo,
 } from "../shared/rpc";
@@ -63,8 +64,9 @@ export function sendUserMessage(
 	messages: ChatMessage[],
 	project?: { name: string; image: string; repos: ProjectRepo[] },
 	mode: "build" | "discuss" = "build",
+	sandboxes: SessionSandbox[] = [],
 ) {
-	rpc.send.userMessage({ assistantId, sessionId, messages, project, mode });
+	rpc.send.userMessage({ assistantId, sessionId, messages, project, mode, sandboxes });
 }
 
 /** Abort the in-flight agent turn streaming into `assistantId`. */

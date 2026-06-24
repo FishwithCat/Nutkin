@@ -16,7 +16,7 @@ import {
 	stopSandbox,
 	writeFile,
 } from "./sandbox";
-import type { ProjectRepo } from "../shared/rpc";
+import type { ProjectRepo, SessionSandbox } from "../shared/rpc";
 
 /** Project context for a session: default sandbox image + bound repositories. */
 export interface ProjectContext {
@@ -126,7 +126,7 @@ function sandboxTools(sessionId: string, defaultImage = "alpine") {
 	return {
 		createSandbox: tool({
 			description:
-				`Create an isolated Linux sandbox (microVM) in this session. Boot it before running commands. Names must be unique within the session. Defaults to the project image ('${defaultImage}') when no image is given.`,
+				`Create an isolated Linux sandbox (microVM) in this session. Boot it before running commands. Names must be unique within the session. Defaults to the project image ('${defaultImage}') when no image is given. IMPORTANT: before creating, check the sandboxes already listed in your system prompt and REUSE an existing one by its exact name (just runCommand in it) instead of creating a duplicate for the same purpose.`,
 			inputSchema: z.object({
 				name: z
 					.string()
@@ -136,6 +136,10 @@ function sandboxTools(sessionId: string, defaultImage = "alpine") {
 					.string()
 					.optional()
 					.describe(`OCI image to boot, e.g. 'alpine', 'python', 'debian'. Defaults to the project image ('${defaultImage}').`),
+				description: z
+					.string()
+					.optional()
+					.describe("Short description of what this sandbox is for, e.g. 'Vite frontend dev server'. Recorded so later turns reuse it instead of creating a duplicate."),
 			}),
 			execute: ({ name = "default", image = defaultImage }) =>
 				createSandbox(sessionId, name, image),
@@ -226,22 +230,39 @@ function sandboxTools(sessionId: string, defaultImage = "alpine") {
 
 // Append the session's project context to the base prompt: the default sandbox
 // image and any bound repositories the agent can clone on demand.
-function buildSystemPrompt(project?: ProjectContext, mode: AgentMode = "build"): string {
+function buildSystemPrompt(
+	project?: ProjectContext,
+	mode: AgentMode = "build",
+	sandboxes: SessionSandbox[] = [],
+): string {
 	const base = mode === "discuss" ? DISCUSS_SYSTEM_PROMPT : SYSTEM_PROMPT;
-	if (!project) return base;
-	const lines = [
-		base,
-		"",
-		`This session belongs to the project "${project.name}". New sandboxes default to the "${project.image}" image.`,
-	];
-	// Cloning instructions only make sense for an editing turn; a discussion
-	// inspects code that is already in the sandbox at the pinned commit.
-	if (mode !== "discuss" && project.repos.length > 0) {
+	const lines = [base];
+	if (project) {
 		lines.push(
-			"The project is bound to these git repositories. When you need their code,",
-			"clone one into a sandbox with runCommand (e.g. `git clone <url> -b <branch>`):",
-			...project.repos.map(
-				(r) => `- ${r.name} — ${r.url} (branch ${r.branch})`,
+			"",
+			`This session belongs to the project "${project.name}". New sandboxes default to the "${project.image}" image.`,
+		);
+		// Cloning instructions only make sense for an editing turn; a discussion
+		// inspects code that is already in the sandbox at the pinned commit.
+		if (mode !== "discuss" && project.repos.length > 0) {
+			lines.push(
+				"The project is bound to these git repositories. When you need their code,",
+				"clone one into a sandbox with runCommand (e.g. `git clone <url> -b <branch>`):",
+				...project.repos.map(
+					(r) => `- ${r.name} — ${r.url} (branch ${r.branch})`,
+				),
+			);
+		}
+	}
+	// Existing sandboxes, so the agent reuses them by name instead of spawning a
+	// duplicate (or guessing a slightly different name and orphaning the old one).
+	if (sandboxes.length > 0) {
+		lines.push(
+			"",
+			"This session already has these sandboxes — reuse them by their exact name",
+			"instead of creating new ones for the same purpose:",
+			...sandboxes.map(
+				(s) => `- ${s.name}${s.description ? ` — ${s.description}` : ""}`,
 			),
 		);
 	}
@@ -269,6 +290,7 @@ export async function runAgent(
 	events: AgentEvents,
 	signal?: AbortSignal,
 	mode: AgentMode = "build",
+	sandboxes: SessionSandbox[] = [],
 ): Promise<void> {
 	if (!process.env.DEEPSEEK_API_KEY) {
 		events.onError(
@@ -292,7 +314,7 @@ export async function runAgent(
 				: allTools;
 		const result = streamText({
 			model: deepseek(MODEL),
-			system: buildSystemPrompt(project, mode),
+			system: buildSystemPrompt(project, mode, sandboxes),
 			messages,
 			tools: availableTools,
 			// The agentic loop: keep taking steps (model call -> tool calls ->
