@@ -8,11 +8,13 @@ import { relativeTime } from "../projectUtils";
 // workspace.
 export function ProjectList({
 	projects,
+	busyProjectIds,
 	onOpen,
 	onNew,
 	onSettings,
 }: {
 	projects: ProjectSummary[];
+	busyProjectIds: Set<string>;
 	onOpen: (id: string) => void;
 	onNew: () => void;
 	onSettings: (id: string) => void;
@@ -68,6 +70,7 @@ export function ProjectList({
 							<ProjectCard
 								key={project.id}
 								project={project}
+								busy={busyProjectIds.has(project.id)}
 								onOpen={() => onOpen(project.id)}
 								onSettings={() => onSettings(project.id)}
 							/>
@@ -97,10 +100,12 @@ export function ProjectList({
 
 function ProjectCard({
 	project,
+	busy,
 	onOpen,
 	onSettings,
 }: {
 	project: ProjectSummary;
+	busy: boolean;
 	onOpen: () => void;
 	onSettings: () => void;
 }) {
@@ -126,7 +131,11 @@ function ProjectCard({
 			</button>
 			<div className="relative z-10 pointer-events-none">
 				<div className="flex items-center gap-3">
-					<div className="w-10 h-10 rounded-xl bg-stone-100 flex items-center justify-center text-stone-500">
+					<div
+						className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+							busy ? "bg-clay-100 text-clay-600" : "bg-stone-100 text-stone-500"
+						}`}
+					>
 						<GitBranch size={18} aria-hidden="true" />
 					</div>
 					<div className="min-w-0">
@@ -140,10 +149,17 @@ function ProjectCard({
 				<div className="mt-4 flex items-center gap-5">
 					<Stat value={project.sessionCount} label="会话" />
 					<Stat value={project.repos.length} label="代码库" />
-					<span className="ml-auto self-end text-xs text-stone-400">
-						<span className="inline-block w-1.5 h-1.5 rounded-full bg-stone-300 mr-1.5 align-middle" />
-						{relativeTime(project.lastActivity)}
-					</span>
+					{busy ? (
+						<span className="ml-auto self-end text-xs text-clay-600 inline-flex items-center gap-1.5">
+							<span className="w-1.5 h-1.5 rounded-full bg-clay-500 animate-pulse" />
+							运行中
+						</span>
+					) : (
+						<span className="ml-auto self-end text-xs text-stone-400">
+							<span className="inline-block w-1.5 h-1.5 rounded-full bg-stone-300 mr-1.5 align-middle" />
+							{relativeTime(project.lastActivity)}
+						</span>
+					)}
 				</div>
 			</div>
 		</div>

@@ -61,6 +61,12 @@ function App() {
 	// `tasks` is a cross-project pool (busy tasks survive project switches); the
 	// sidebar shows only the open project's tasks.
 	const projectTasks = tasks.filter((t) => t.projectId === activeProjectId);
+	// Projects with a session executing right now (busy lives in the cross-project
+	// pool, so this stays accurate on the landing page too).
+	const busyProjectIds = useMemo(
+		() => new Set(tasks.filter((t) => t.busy).map((t) => t.projectId)),
+		[tasks],
+	);
 
 	// Open a project's workspace: load its sessions, remember it as the last
 	// project, and switch the view. Seeds the save cache so freshly-loaded tasks
@@ -82,7 +88,10 @@ function App() {
 			setTasks((prev) => {
 				const busy = prev.filter((t) => t.busy);
 				const busyIds = new Set(busy.map((t) => t.id));
-				return [...busy, ...loaded.filter((t) => !busyIds.has(t.id))];
+				const next = [...busy, ...loaded.filter((t) => !busyIds.has(t.id))];
+				// Default-select the first session of the switched-to project (matches sidebar order).
+				setActiveId(next.find((t) => t.projectId === id)?.id ?? null);
+				return next;
 			});
 		});
 	}, []);
@@ -416,6 +425,7 @@ function App() {
 			<>
 				<ProjectList
 					projects={projects}
+					busyProjectIds={busyProjectIds}
 					onOpen={openProject}
 					onNew={() => setShowCreate(true)}
 					onSettings={setSettingsProjectId}
