@@ -1,4 +1,4 @@
-import { Upload } from "lucide-react";
+import { ListChecks } from "lucide-react";
 import type { Task } from "../types";
 
 export function TaskHeader({
@@ -33,8 +33,8 @@ export function TaskHeader({
 					title={canReview ? "审阅待推送的更改" : "暂无更改"}
 					className="shrink-0 inline-flex items-center gap-1.5 rounded-xl bg-clay-500 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-clay-600 disabled:opacity-40 disabled:cursor-not-allowed"
 				>
-					<Upload size={15} aria-hidden="true" />
-					准备推送
+					<ListChecks size={15} aria-hidden="true" />
+					Review All
 				</button>
 			</div>
 		</div>
