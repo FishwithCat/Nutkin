@@ -1,5 +1,6 @@
 import { MessageSquare, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { taskBusy } from "../taskState";
 import type { Task } from "../types";
 
 export function Sidebar({
@@ -70,6 +71,7 @@ function TaskCard({
 	onDelete: () => void;
 }) {
 	const [confirming, setConfirming] = useState(false);
+	const busy = taskBusy(task);
 	return (
 		<div
 			onMouseLeave={() => setConfirming(false)}
@@ -84,9 +86,9 @@ function TaskCard({
 			>
 				<span
 					className={`shrink-0 w-1.5 h-1.5 rounded-full ${
-						task.busy ? "bg-clay-500 animate-pulse" : "bg-stone-300"
+						busy ? "bg-clay-500 animate-pulse" : "bg-stone-300"
 					}`}
-					title={task.busy ? "运行中" : "就绪"}
+					title={busy ? "运行中" : "就绪"}
 				/>
 				<span
 					className={`flex-1 truncate text-sm ${

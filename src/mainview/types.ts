@@ -1,5 +1,6 @@
 // Shared UI state shapes for the chat view. These mirror what the agent streams
-// but carry runtime-only flags (pending/busy) that never get persisted.
+// but carry a runtime-only `pending` flag per message that never gets persisted.
+// Whether a task is "busy" is derived from those flags (see taskBusy/mainBusy).
 import type {
 	Anchor,
 	Commit,
@@ -61,7 +62,6 @@ export interface Task {
 	title: string;
 	projectId: string;
 	messages: UIMessage[];
-	busy: boolean;
 	// Sandboxes created in this session (name + purpose), derived from
 	// createSandbox tool calls and replayed into the agent's prompt.
 	sandboxes: SessionSandbox[];

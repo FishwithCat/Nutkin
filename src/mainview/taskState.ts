@@ -29,13 +29,7 @@ export function threadHistory(
 		`- 看此后的变化： ${g} diff ${anchor.commitHash} HEAD -- ${anchor.path}`,
 	].join("\n");
 	const prior = task.messages
-		.filter(
-			(m) =>
-				m.anchor?.toolCallId === anchor.toolCallId &&
-				m.anchor.startLine === anchor.startLine &&
-				m.anchor.endLine === anchor.endLine &&
-				m.content.trim().length > 0,
-		)
+		.filter((m) => sameAnchor(m.anchor, anchor) && m.content.trim().length > 0)
 		.map((m) => ({ role: m.role, content: m.content }) as ChatMessage);
 	return [{ role: "user", content: framing }, ...prior, { role: "user", content: text }];
 }
@@ -60,6 +54,23 @@ export function refactorPrompt(anchor: Anchor, instruction: string): string {
 		`Refactor request: ${instruction}`,
 	].join("\n");
 }
+
+// Busy state is derived from per-message `pending` flags, not a single task-level
+// flag — so a build turn and a discussion (or several discussions) can run at once
+// without the first to finish clearing the others. `taskBusy` = any turn running;
+// `mainBusy` = the main conversation running (ignores anchored discussion threads).
+export const taskBusy = (t: Task) => t.messages.some((m) => m.pending);
+export const mainBusy = (t: Task) =>
+	t.messages.some((m) => m.pending && !m.anchor);
+
+// Two anchors point at the same discussion thread when they share the diff card
+// (toolCallId) and the exact line range.
+export const sameAnchor = (a?: Anchor, b?: Anchor) =>
+	!!a &&
+	!!b &&
+	a.toolCallId === b.toolCallId &&
+	a.startLine === b.startLine &&
+	a.endLine === b.endLine;
 
 export function makeId() {
 	return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -214,7 +225,6 @@ export function fromPersisted(task: PersistedTask): Task {
 		id: task.id,
 		title: task.title,
 		projectId: task.projectId,
-		busy: false,
 		sandboxes: sandboxesFromMessages(messages),
 		messages,
 	};
@@ -241,8 +251,6 @@ export function routeEvent(tasks: Task[], event: AgentEvent): Task[] {
 		const messages = task.messages.map((m) =>
 			m.id === id ? applyEvent(m, event) : m,
 		);
-		const busy =
-			event.type === "done" || event.type === "error" ? false : task.busy;
-		return { ...task, messages, busy, sandboxes: reduceSandboxes(task.sandboxes, event) };
+		return { ...task, messages, sandboxes: reduceSandboxes(task.sandboxes, event) };
 	});
 }

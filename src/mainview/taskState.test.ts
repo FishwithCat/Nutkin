@@ -1,7 +1,14 @@
 import { expect, test } from "bun:test";
-import { applyEvent, reduceSandboxes, sandboxesFromMessages } from "./taskState";
+import {
+	applyEvent,
+	mainBusy,
+	reduceSandboxes,
+	sameAnchor,
+	sandboxesFromMessages,
+	taskBusy,
+} from "./taskState";
 import type { AgentEvent } from "./rpc";
-import type { UIMessage } from "./types";
+import type { Anchor, Task, UIMessage } from "./types";
 
 const createSandbox = (input: unknown): AgentEvent => ({
 	type: "toolCall",
@@ -81,4 +88,62 @@ test("sandboxesFromMessages rebuilds the registry from history (dedupe + update)
 		{ name: "web", description: "todo app + tunnel" },
 		{ name: "default", description: "" },
 	]);
+});
+
+const anchor = (over: Partial<Anchor> = {}): Anchor => ({
+	toolCallId: "tc1",
+	sandboxName: "default",
+	repoRoot: "/r",
+	commitHash: "deadbeef",
+	path: "a.ts",
+	startLine: 1,
+	endLine: 3,
+	quotedText: "x",
+	...over,
+});
+
+const pendingMsg = (over: Partial<UIMessage> = {}): UIMessage => ({
+	id: "m",
+	role: "assistant",
+	content: "",
+	reasoning: [],
+	tools: [],
+	pending: true,
+	...over,
+});
+
+const task = (messages: UIMessage[]): Task => ({
+	id: "t",
+	title: "t",
+	projectId: "p",
+	sandboxes: [],
+	messages,
+});
+
+test("a pending main turn is busy at both scopes", () => {
+	const t = task([pendingMsg()]);
+	expect(taskBusy(t)).toBe(true);
+	expect(mainBusy(t)).toBe(true);
+});
+
+test("a pending discussion turn is task-busy but not main-busy", () => {
+	const t = task([pendingMsg({ anchor: anchor() })]);
+	expect(taskBusy(t)).toBe(true);
+	expect(mainBusy(t)).toBe(false);
+});
+
+test("no pending messages means idle at both scopes", () => {
+	const t = task([
+		pendingMsg({ pending: false }),
+		pendingMsg({ pending: false, anchor: anchor() }),
+	]);
+	expect(taskBusy(t)).toBe(false);
+	expect(mainBusy(t)).toBe(false);
+});
+
+test("sameAnchor matches on card + line range, rejects mismatches and undefined", () => {
+	expect(sameAnchor(anchor(), anchor())).toBe(true);
+	expect(sameAnchor(anchor(), anchor({ endLine: 9 }))).toBe(false);
+	expect(sameAnchor(anchor(), anchor({ toolCallId: "tc2" }))).toBe(false);
+	expect(sameAnchor(undefined, anchor())).toBe(false);
 });

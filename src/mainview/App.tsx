@@ -17,9 +17,12 @@ import type { AgentEvent } from "./rpc";
 import {
 	deriveTitle,
 	fromPersisted,
+	mainBusy,
 	makeId,
 	refactorPrompt,
 	routeEvent,
+	sameAnchor,
+	taskBusy,
 	threadHistory,
 	toPersisted,
 } from "./taskState";
@@ -67,7 +70,7 @@ function App() {
 	// Projects with a session executing right now (busy lives in the cross-project
 	// pool, so this stays accurate on the landing page too).
 	const busyProjectIds = useMemo(
-		() => new Set(tasks.filter((t) => t.busy).map((t) => t.projectId)),
+		() => new Set(tasks.filter((t) => taskBusy(t)).map((t) => t.projectId)),
 		[tasks],
 	);
 
@@ -89,7 +92,7 @@ function App() {
 			// drop the loaded version by id. The sidebar filters by project, so busy
 			// tasks from other projects stay in the pool but hidden.
 			setTasks((prev) => {
-				const busy = prev.filter((t) => t.busy);
+				const busy = prev.filter((t) => taskBusy(t));
 				const busyIds = new Set(busy.map((t) => t.id));
 				const next = [...busy, ...loaded.filter((t) => !busyIds.has(t.id))];
 				// Default-select the first session of the switched-to project (matches sidebar order).
@@ -114,7 +117,7 @@ function App() {
 	// ponytail: 串流中途崩溃会丢未完成轮次；需要再改成 debounce 中途保存。
 	useEffect(() => {
 		for (const task of tasks) {
-			if (task.busy) continue;
+			if (taskBusy(task)) continue;
 			const persisted = toPersisted(task);
 			const serialized = JSON.stringify(persisted);
 			if (savedRef.current.get(task.id) === serialized) continue;
@@ -181,7 +184,17 @@ function App() {
 	// message was actually sent (false if empty or the task is busy).
 	function sendMessage(text: string, anchor?: Anchor): boolean {
 		const trimmed = text.trim();
-		if (!trimmed || activeTask?.busy || !activeProjectId) return false;
+		if (!trimmed || !activeProjectId) return false;
+		// Only the turn this send belongs to needs to be idle: a thread turn is
+		// blocked only while that same discussion is mid-reply; a main turn only
+		// while the main conversation is. So a discussion can start while the build
+		// agent runs, and several discussions can run at once.
+		if (activeTask) {
+			const busy = anchor
+				? activeTask.messages.some((m) => m.pending && sameAnchor(m.anchor, anchor))
+				: mainBusy(activeTask);
+			if (busy) return false;
+		}
 
 		// Project context handed to the agent: default sandbox image + bound repos.
 		const projectCtx = activeProject
@@ -224,7 +237,6 @@ function App() {
 				title: deriveTitle(trimmed),
 				projectId: activeProjectId,
 				messages: [userMsg, assistantMsg],
-				busy: true,
 				sandboxes: [],
 			};
 			setTasks((prev) => [task, ...prev]);
@@ -254,7 +266,7 @@ function App() {
 		setTasks((prev) =>
 			prev.map((t) =>
 				t.id === activeTask.id
-					? { ...t, messages: [...t.messages, userMsg, assistantMsg], busy: true }
+					? { ...t, messages: [...t.messages, userMsg, assistantMsg] }
 					: t,
 			),
 		);
@@ -286,7 +298,9 @@ function App() {
 	// never silently drops the hand-off.
 	const dispatched = useRef<Set<string>>(new Set());
 	useEffect(() => {
-		if (!activeTask || activeTask.busy) return;
+		// The send below gates on the main conversation being idle and only marks a
+		// hand-off dispatched on success, so a busy main turn just defers it.
+		if (!activeTask) return;
 		for (const m of activeTask.messages) {
 			if (!m.anchor || m.pending) continue;
 			const t = m.tools.find(
@@ -311,12 +325,7 @@ function App() {
 
 	// Messages belonging to the open anchor's thread (same card + same line range).
 	const openThread = openAnchor
-		? (activeTask?.messages ?? []).filter(
-				(m) =>
-					m.anchor?.toolCallId === openAnchor.toolCallId &&
-					m.anchor.startLine === openAnchor.startLine &&
-					m.anchor.endLine === openAnchor.endLine,
-			)
+		? (activeTask?.messages ?? []).filter((m) => sameAnchor(m.anchor, openAnchor))
 		: [];
 
 	// Thread turns grouped by the diff card they hang on. Recomputed only when a
@@ -338,9 +347,11 @@ function App() {
 	// Stop the active task's in-flight turn. The backend's onDone flips busy
 	// false once the abort propagates; the partial reply already streamed stays.
 	function abort() {
-		if (!activeTask?.busy) return;
+		// The main composer's stop button aborts the main turn only — a running
+		// discussion thread keeps going (it has no separate stop yet).
+		if (!activeTask) return;
 		const pending = activeTask.messages.find(
-			(m) => m.role === "assistant" && m.pending,
+			(m) => m.role === "assistant" && m.pending && !m.anchor,
 		);
 		if (pending) abortTurn(pending.id);
 	}
@@ -510,7 +521,7 @@ function App() {
 								onKeyDown={onKeyDown}
 								onSend={send}
 								onAbort={abort}
-								busy={activeTask.busy}
+								busy={mainBusy(activeTask)}
 							/>
 						</>
 					) : (
@@ -528,7 +539,7 @@ function App() {
 					<DiscussionPanel
 						anchor={openAnchor}
 						thread={openThread}
-						busy={activeTask.busy}
+						busy={openThread.some((m) => m.pending)}
 						onSend={(text) => sendMessage(text, openAnchor)}
 						onClose={() => setOpenAnchor(null)}
 					/>
