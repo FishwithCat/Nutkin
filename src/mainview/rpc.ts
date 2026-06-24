@@ -9,6 +9,8 @@ import type {
 	Project,
 	ProjectRepo,
 	ProjectSummary,
+	ReviewEntry,
+	ReviewFileContent,
 	SessionSandbox,
 	ToolCallInfo,
 	ToolResultInfo,
@@ -117,4 +119,22 @@ export function saveTask(task: PersistedTask) {
 /** Delete a conversation and tear down its sandboxes. */
 export function deleteTask(id: string) {
 	rpc.send.deleteTask(id);
+}
+
+/** The list of changed files across the session's sandboxes (no content). */
+export function reviewList(
+	sessionId: string,
+	sandboxes: string[],
+): Promise<ReviewEntry[]> {
+	return rpc.request.reviewList({ sessionId, sandboxes });
+}
+
+/** The before/after text for one reviewed file, fetched when it's opened. */
+export function reviewFile(
+	sessionId: string,
+	sandboxName: string,
+	repoRoot: string,
+	path: string,
+): Promise<ReviewFileContent> {
+	return rpc.request.reviewFile({ sessionId, sandboxName, repoRoot, path });
 }

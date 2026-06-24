@@ -212,6 +212,29 @@ conversation** (`refactorPrompt` in `taskState.ts` re-attaches the anchored file
 line range, and snapshot commit). The refactor then runs as a normal editing turn
 with diffs; the tool itself never edits, it only hands off the request.
 
+## Ready to Push (review panel)
+
+The session header has a **准备推送 / Ready to Push** button (disabled while the
+agent is running or before any sandbox exists). It opens a full-screen review of
+**every change the session made, across all its sandboxes** — a two-column panel:
+a file list on the left, the selected file's inline diff on the right (reusing the
+read-only `DiffView`). It's review-only; it does **not** push.
+
+The backend (`src/bun/sandbox.ts`) **discovers the repos itself** rather than
+trusting per-turn commit records — those only cover files an edit tool touched,
+so a repo cloned/built purely via `runCommand` would be missed. It scans each
+sandbox for `.git` dirs (bounded `find` from common roots), then for each repo
+diffs its current `HEAD` against its **upstream** (`@{u}`), falling back to git's
+empty tree when there is no upstream so a locally-`init`'d repo shows every file
+as added.
+
+Content loads lazily so the panel opens fast regardless of how many files
+changed, via two RPC requests: `reviewList` returns just the changed-file list
+(one `git diff --name-status` per repo, no content), and `reviewFile` fetches one
+file's before/after text (capped at 10k chars, truncation flagged) only when it's
+opened. The panel auto-selects the first file, so its diff still loads on open;
+opened files are cached client-side, so switching back is instant.
+
 ## How HMR Works
 
 When you run `bun run dev:hmr`:

@@ -6,10 +6,23 @@ import type {
 	Project,
 	ProjectRepo,
 	ProjectSummary,
+	ReviewEntry,
+	ReviewFileContent,
+	ReviewStatus,
 	SessionSandbox,
 } from "../shared/rpc";
 
-export type { Anchor, Commit, Project, ProjectRepo, ProjectSummary, SessionSandbox };
+export type {
+	Anchor,
+	Commit,
+	Project,
+	ProjectRepo,
+	ProjectSummary,
+	ReviewEntry,
+	ReviewFileContent,
+	ReviewStatus,
+	SessionSandbox,
+};
 
 export interface ToolEvent {
 	toolCallId: string;

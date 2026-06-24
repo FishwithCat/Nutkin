@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
-import { reduceSandboxes } from "./taskState";
+import { reduceSandboxes, sandboxesFromMessages } from "./taskState";
 import type { AgentEvent } from "./rpc";
+import type { UIMessage } from "./types";
 
 const createSandbox = (input: unknown): AgentEvent => ({
 	type: "toolCall",
@@ -35,4 +36,26 @@ test("non-createSandbox events leave the list untouched", () => {
 	const start = [{ name: "web", description: "frontend" }];
 	const other: AgentEvent = { type: "done", id: "m1" };
 	expect(reduceSandboxes(start, other)).toBe(start);
+});
+
+const msg = (tools: UIMessage["tools"]): UIMessage => ({
+	id: "m",
+	role: "assistant",
+	content: "",
+	reasoning: "",
+	tools,
+	pending: false,
+});
+
+test("sandboxesFromMessages rebuilds the registry from history (dedupe + update)", () => {
+	const messages: UIMessage[] = [
+		msg([{ toolCallId: "1", toolName: "createSandbox", input: { name: "web", description: "todo app" } }]),
+		msg([{ toolCallId: "2", toolName: "runCommand", input: { name: "web", command: "ls" } }]),
+		msg([{ toolCallId: "3", toolName: "createSandbox", input: { name: "web", description: "todo app + tunnel" } }]),
+		msg([{ toolCallId: "4", toolName: "createSandbox", input: {} }]),
+	];
+	expect(sandboxesFromMessages(messages)).toEqual([
+		{ name: "web", description: "todo app + tunnel" },
+		{ name: "default", description: "" },
+	]);
 });

@@ -7,6 +7,7 @@
 // caches handles to sandboxes we've started this run; anything not cached is
 // re-attached lazily from disk by `reattach()`.
 import { Sandbox } from "microsandbox";
+import type { ReviewEntry, ReviewFileContent, ReviewStatus } from "../shared/rpc";
 
 // sessionId -> friendly name -> running sandbox (this run only; rebuilt lazily)
 const sessions = new Map<string, Map<string, Sandbox>>();
@@ -315,6 +316,127 @@ export async function commitChanges(
 		}
 	}
 	return out;
+}
+
+// --- Push review ------------------------------------------------------------
+//
+// "Ready to Push" shows every change a session made, across all its sandboxes,
+// as a net diff per repo. We discover the repos by scanning the sandbox for
+// `.git` dirs (so a repo cloned/built purely via runCommand is found too, not
+// just ones an edit tool touched), then diff each against its upstream.
+
+// git's empty-tree object: diffing against it makes every tracked file read as
+// added, the right base for a repo with no upstream to compare against.
+const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
+// Map a `git diff --name-status` letter to our status. Renames/copies (R/C) are
+// reported as their destination path, so treat them as a modification.
+function mapStatus(letter: string): ReviewStatus {
+	if (letter === "A") return "added";
+	if (letter === "D") return "deleted";
+	return "modified"; // M, R*, C*, T, …
+}
+
+// Parse `git diff --name-status` output into {status, path} rows.
+// ponytail: line/tab split, not -z. Switch to -z if paths with newlines bite.
+export function parseNameStatus(out: string): { status: ReviewStatus; path: string }[] {
+	const rows: { status: ReviewStatus; path: string }[] = [];
+	for (const line of out.split("\n")) {
+		if (!line.trim()) continue;
+		const parts = line.split("\t");
+		const letter = parts[0]?.[0] ?? "";
+		// Renames/copies are "R100\told\tnew" — the destination is the last field.
+		const path = parts[parts.length - 1];
+		if (!letter || !path) continue;
+		rows.push({ status: mapStatus(letter), path });
+	}
+	return rows;
+}
+
+// Find git repo roots inside a sandbox: every `.git` dir under `/`, pruning the
+// virtual/irrelevant trees (proc/sys/dev) and node_modules so it stays fast, with
+// a depth cap as a backstop. Searching from `/` (not a guessed list of roots)
+// avoids missing a repo the agent put somewhere unexpected.
+// ponytail: depth 7 from /. Raise it if a deeply-nested repo is missed.
+async function findRepos(sandbox: Sandbox): Promise<string[]> {
+	const script =
+		"find / -maxdepth 7 \\( -path /proc -o -path /sys -o -path /dev -o -name node_modules \\) -prune " +
+		"-o -type d -name .git -print 2>/dev/null";
+	const r = await sh(sandbox, script);
+	const repos = new Set<string>();
+	for (const line of r.out.split("\n")) {
+		const dir = line.trim();
+		if (dir.endsWith("/.git")) repos.add(dir.slice(0, -"/.git".length) || "/");
+	}
+	return [...repos];
+}
+
+// Read a path at a git ref via stdout, base64'd so binary-ish content survives
+// the shell. Empty string when the path doesn't exist at that ref (added/deleted).
+async function showAt(sandbox: Sandbox, root: string, ref: string, path: string): Promise<string> {
+	const r = shq(root);
+	const exec = await sandbox.execWith("sh", (b) =>
+		b.args(["-c", `git -C ${r} show ${shq(`${ref}:${path}`)} 2>/dev/null | base64`]).timeout(DEFAULT_TIMEOUT_MS),
+	);
+	if (exec.code !== 0) return "";
+	return Buffer.from(exec.stdout(), "base64").toString("utf8");
+}
+
+// The ref a repo is reviewed against: its upstream if the branch has one, else
+// git's empty tree (so every file reads as added).
+async function resolveBase(sandbox: Sandbox, root: string): Promise<string> {
+	const r = shq(root);
+	const res = await sh(sandbox, `git -C ${r} rev-parse --verify -q '@{u}' || echo ${EMPTY_TREE}`);
+	return res.out.trim() || EMPTY_TREE;
+}
+
+// The list of changed files across a session's sandboxes — no per-file content,
+// so it's cheap (one name-status per repo). Falls back to all of the session's
+// sandboxes when the caller passes none.
+export async function reviewList(
+	sessionId: string,
+	sandboxNames: string[],
+): Promise<ReviewEntry[]> {
+	let names = sandboxNames;
+	if (names.length === 0) {
+		const listed = await listSandboxes(sessionId);
+		names = listed.sandboxes.map((s) => s.name);
+	}
+	const out: ReviewEntry[] = [];
+	for (const name of names) {
+		const sandbox = await ensure(sessionId, name);
+		if (!sandbox) continue;
+		for (const root of await findRepos(sandbox)) {
+			// No remote → nothing to push to. Skips stray local `git init`s the agent
+			// leaves in system dirs (e.g. editing /etc), keeping only real push targets.
+			const remotes = await sh(sandbox, `git -C ${shq(root)} remote`);
+			if (!remotes.out.trim()) continue;
+			const base = await resolveBase(sandbox, root);
+			const names2 = await sh(sandbox, `git -C ${shq(root)} diff --name-status ${base} HEAD`);
+			for (const { status, path } of parseNameStatus(names2.out)) {
+				out.push({ sandboxName: name, repoRoot: root, path, status });
+			}
+		}
+	}
+	return out;
+}
+
+// The before/after text for one reviewed file, fetched when the user opens it.
+// A path missing at a ref (added/deleted) reads back as empty, so we just fetch
+// both sides unconditionally.
+export async function reviewFile(
+	sessionId: string,
+	sandboxName: string,
+	repoRoot: string,
+	path: string,
+): Promise<ReviewFileContent> {
+	const sandbox = await ensure(sessionId, sandboxName);
+	if (!sandbox) return { oldText: "", newText: "" };
+	const base = await resolveBase(sandbox, repoRoot);
+	const oldText = await showAt(sandbox, repoRoot, base, path);
+	const newText = await showAt(sandbox, repoRoot, "HEAD", path);
+	const truncated = oldText.length > MAX_OUTPUT || newText.length > MAX_OUTPUT;
+	return { oldText: cap(oldText), newText: cap(newText), ...(truncated ? { truncated: true } : {}) };
 }
 
 // A promise that rejects when the signal aborts, so it can lose a Promise.race

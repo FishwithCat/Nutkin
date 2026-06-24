@@ -13,6 +13,8 @@ import { runAgent } from "./agent";
 import {
 	commitChanges,
 	removeSessionSandboxes,
+	reviewFile,
+	reviewList,
 	stopAllSandboxes,
 	type ChangedFile,
 } from "./sandbox";
@@ -185,6 +187,10 @@ const rpc = BrowserView.defineRPC<AgentRPC>({
 				})),
 			getLastProject: (): string | null =>
 				getState.get({ $key: "lastProjectId" })?.value ?? null,
+			reviewList: ({ sessionId, sandboxes }) =>
+				reviewList(sessionId, sandboxes),
+			reviewFile: ({ sessionId, sandboxName, repoRoot, path }) =>
+				reviewFile(sessionId, sandboxName, repoRoot, path),
 		},
 		messages: {
 			saveProject: (project: Project) => {

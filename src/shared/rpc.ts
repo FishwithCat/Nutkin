@@ -73,6 +73,27 @@ export interface SessionSandbox {
 	description: string;
 }
 
+export type ReviewStatus = "added" | "modified" | "deleted";
+
+/**
+ * One changed file in a session's "Ready to Push" review, identifying the repo
+ * (inside a sandbox) and its change kind. The before/after text is fetched
+ * separately, per file, only when the user opens it (see ReviewFileContent).
+ */
+export interface ReviewEntry {
+	sandboxName: string;
+	repoRoot: string;
+	path: string;
+	status: ReviewStatus;
+}
+
+/** The before/after text for one reviewed file (capped; flagged when truncated). */
+export interface ReviewFileContent {
+	oldText: string;
+	newText: string;
+	truncated?: boolean;
+}
+
 /** A tool invocation surfaced to the UI so the agent's steps are visible. */
 export interface ToolCallInfo {
 	id: string;
@@ -132,6 +153,20 @@ export type AgentRPC = {
 			loadTasks: { params: { projectId: string }; response: PersistedTask[] };
 			/** The id of the last project the user had open, or null. */
 			getLastProject: { params: undefined; response: string | null };
+			/**
+			 * The list of changed files across the session's sandboxes, for the push
+			 * review. The backend discovers the git repos itself; cheap (no per-file
+			 * content), so the panel opens fast regardless of how many files changed.
+			 */
+			reviewList: {
+				params: { sessionId: string; sandboxes: string[] };
+				response: ReviewEntry[];
+			};
+			/** The before/after text for one reviewed file, fetched on open. */
+			reviewFile: {
+				params: { sessionId: string; sandboxName: string; repoRoot: string; path: string };
+				response: ReviewFileContent;
+			};
 		};
 		messages: {
 			userMessage: {

@@ -139,13 +139,34 @@ export function reduceSandboxes(
 	return sandboxes;
 }
 
-// Drop runtime-only flags before persisting.
+// Rebuild the sandbox registry from a conversation's createSandbox tool calls.
+// The history is the source of truth (it's always persisted), so a reloaded
+// session recovers its sandboxes even though the live registry isn't stored.
+// Mirrors reduceSandboxes, but folds over persisted tool calls instead of events.
+export function sandboxesFromMessages(messages: UIMessage[]): SessionSandbox[] {
+	let sandboxes: SessionSandbox[] = [];
+	for (const m of messages) {
+		for (const t of m.tools) {
+			if (t.toolName !== "createSandbox") continue;
+			const input = t.input as { name?: string; description?: string } | undefined;
+			const name = input?.name ?? "default";
+			const description = input?.description ?? "";
+			const existing = sandboxes.find((s) => s.name === name);
+			if (!existing) sandboxes = [...sandboxes, { name, description }];
+			else if (description && description !== existing.description)
+				sandboxes = sandboxes.map((s) => (s.name === name ? { ...s, description } : s));
+		}
+	}
+	return sandboxes;
+}
+
+// Drop runtime-only flags before persisting. Sandboxes aren't stored — they're
+// re-derived from the message history on load (see sandboxesFromMessages).
 export function toPersisted(task: Task): PersistedTask {
 	return {
 		id: task.id,
 		title: task.title,
 		projectId: task.projectId,
-		sandboxes: task.sandboxes,
 		messages: task.messages.map((m) => ({
 			id: m.id,
 			role: m.role,
@@ -159,15 +180,17 @@ export function toPersisted(task: Task): PersistedTask {
 	};
 }
 
-// Restore a stored conversation, re-adding runtime flags as idle.
+// Restore a stored conversation, re-adding runtime flags as idle and rebuilding
+// the sandbox registry from the createSandbox calls in its history.
 export function fromPersisted(task: PersistedTask): Task {
+	const messages = task.messages.map((m) => ({ ...m, pending: false }));
 	return {
 		id: task.id,
 		title: task.title,
 		projectId: task.projectId,
 		busy: false,
-		sandboxes: task.sandboxes ?? [],
-		messages: task.messages.map((m) => ({ ...m, pending: false })),
+		sandboxes: sandboxesFromMessages(messages),
+		messages,
 	};
 }
 

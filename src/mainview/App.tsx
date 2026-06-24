@@ -31,6 +31,7 @@ import { EmptyState } from "./components/EmptyState";
 import { MessageBlock } from "./components/MessageBlock";
 import { ProjectList } from "./components/ProjectList";
 import { ProjectSettings } from "./components/ProjectSettings";
+import { ReviewPanel } from "./components/ReviewPanel";
 import { Sidebar } from "./components/Sidebar";
 import { TaskHeader } from "./components/TaskHeader";
 import { TopBar } from "./components/TopBar";
@@ -47,6 +48,8 @@ function App() {
 	const [input, setInput] = useState("");
 	// The code anchor whose discussion is open in the side panel (null = closed).
 	const [openAnchor, setOpenAnchor] = useState<Anchor | null>(null);
+	// Whether the "准备推送" review panel is open for the active session.
+	const [reviewOpen, setReviewOpen] = useState(false);
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const savedRef = useRef<Map<string, string>>(new Map());
 	// Whether the view should keep following new content. Updated on every scroll
@@ -155,6 +158,7 @@ function App() {
 	useLayoutEffect(() => {
 		stickRef.current = true;
 		setOpenAnchor(null);
+		setReviewOpen(false);
 		const el = scrollRef.current;
 		if (el) el.scrollTop = el.scrollHeight;
 	}, [activeId]);
@@ -460,41 +464,57 @@ function App() {
 				/>
 
 				<main className="flex-1 flex flex-col min-w-0">
-					{activeTask && <TaskHeader task={activeTask} />}
+					{activeTask && !reviewOpen && (
+						<TaskHeader
+							task={activeTask}
+							canReview={activeTask.sandboxes.length > 0}
+							onReview={() => setReviewOpen(true)}
+						/>
+					)}
 
-					<div
-						ref={scrollRef}
-						onScroll={onScroll}
-						className="flex-1 overflow-y-auto"
-					>
-						<div className="w-full px-6 py-6 space-y-4">
-							{activeTask ? (
-								activeTask.messages
-									.filter((m) => !m.anchor)
-									.map((m) => (
-										<MessageBlock
-											key={m.id}
-											message={m}
-											threads={threads}
-											onOpenThread={onOpenThread}
-											onCreateThread={onCreateThread}
-											openAnchor={openAnchor}
-										/>
-									))
-							) : (
-								<EmptyState />
-							)}
-						</div>
-					</div>
+					{reviewOpen && activeTask ? (
+						<ReviewPanel
+							sessionId={activeTask.id}
+							sandboxes={activeTask.sandboxes.map((s) => s.name)}
+							onClose={() => setReviewOpen(false)}
+						/>
+					) : (
+						<>
+							<div
+								ref={scrollRef}
+								onScroll={onScroll}
+								className="flex-1 overflow-y-auto"
+							>
+								<div className="w-full px-6 py-6 space-y-4">
+									{activeTask ? (
+										activeTask.messages
+											.filter((m) => !m.anchor)
+											.map((m) => (
+												<MessageBlock
+													key={m.id}
+													message={m}
+													threads={threads}
+													onOpenThread={onOpenThread}
+													onCreateThread={onCreateThread}
+													openAnchor={openAnchor}
+												/>
+											))
+									) : (
+										<EmptyState />
+									)}
+								</div>
+							</div>
 
-					<Composer
-						input={input}
-						setInput={setInput}
-						onKeyDown={onKeyDown}
-						onSend={send}
-						onAbort={abort}
-						busy={activeTask?.busy ?? false}
-					/>
+							<Composer
+								input={input}
+								setInput={setInput}
+								onKeyDown={onKeyDown}
+								onSend={send}
+								onAbort={abort}
+								busy={activeTask?.busy ?? false}
+							/>
+						</>
+					)}
 				</main>
 
 				{openAnchor && activeTask && (
