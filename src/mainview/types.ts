@@ -33,6 +33,9 @@ export interface ToolEvent {
 	// streamed in and when its result (or abort) lands.
 	startedAt?: number;
 	endedAt?: number;
+	// How many chars of `content` had streamed when this call fired — used to
+	// interleave tool calls with text in stream order. Absent on old data → 0.
+	textOffset?: number;
 }
 
 export interface UIMessage {

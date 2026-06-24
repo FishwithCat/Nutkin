@@ -4,17 +4,26 @@ import { DiffView, fileDiff, type FileDiff } from "./DiffView";
 import { Markdown } from "./Markdown";
 import { ToolPanel } from "./ToolPanel";
 
-// Split a turn's tool calls into ordered segments: each completed file edit
-// becomes its own standalone diff card, while runs of regular calls (and any
-// still-running or errored file edits) are grouped into one tool panel. Keeps
-// diffs visually separate from the tool-call list while preserving chronology.
+// Split a turn into ordered segments that follow the real stream order: text the
+// model spoke, runs of regular tool calls (grouped into one collapsed panel), and
+// each completed file edit as its own diff card. Tool calls carry `textOffset` —
+// how much text had streamed when they fired — so text is sliced and interleaved at
+// the right spots. Empty slice between two calls ⇒ they stay in one group.
 type Segment =
+	| { kind: "text"; key: string; text: string }
 	| { kind: "tools"; key: string; tools: ToolEvent[] }
 	| { kind: "diff"; key: string; diff: FileDiff };
 
-function toSegments(tools: ToolEvent[]): Segment[] {
+function toSegments(tools: ToolEvent[], content: string): Segment[] {
 	const segments: Segment[] = [];
+	let cursor = 0;
+	const flushText = (upTo: number) => {
+		const text = content.slice(cursor, upTo);
+		if (text) segments.push({ kind: "text", key: `text-${cursor}`, text });
+		cursor = Math.max(cursor, upTo);
+	};
 	for (const t of tools) {
+		flushText(t.textOffset ?? 0);
 		const diff = fileDiff(t);
 		if (diff) {
 			segments.push({ kind: "diff", key: t.toolCallId, diff });
@@ -24,6 +33,7 @@ function toSegments(tools: ToolEvent[]): Segment[] {
 			else segments.push({ kind: "tools", key: t.toolCallId, tools: [t] });
 		}
 	}
+	flushText(content.length);
 	return segments;
 }
 
@@ -78,7 +88,7 @@ export const MessageBlock = memo(function MessageBlock({
 					</details>
 				)}
 
-				{toSegments(message.tools).map((seg) =>
+				{toSegments(message.tools, message.content).map((seg) =>
 					seg.kind === "diff" ? (
 						<DiffView
 							key={seg.key}
@@ -90,15 +100,13 @@ export const MessageBlock = memo(function MessageBlock({
 							onCreateThread={onCreateThread}
 							openAnchor={openAnchor}
 						/>
-					) : (
+					) : seg.kind === "tools" ? (
 						<ToolPanel key={seg.key} tools={seg.tools} />
+					) : (
+						<div key={seg.key} className="text-sm leading-relaxed text-stone-800">
+							<Markdown>{seg.text}</Markdown>
+						</div>
 					),
-				)}
-
-				{message.content && (
-					<div className="text-sm leading-relaxed text-stone-800">
-						<Markdown>{message.content}</Markdown>
-					</div>
 				)}
 
 				{empty && (

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { reduceSandboxes, sandboxesFromMessages } from "./taskState";
+import { applyEvent, reduceSandboxes, sandboxesFromMessages } from "./taskState";
 import type { AgentEvent } from "./rpc";
 import type { UIMessage } from "./types";
 
@@ -36,6 +36,17 @@ test("non-createSandbox events leave the list untouched", () => {
 	const start = [{ name: "web", description: "frontend" }];
 	const other: AgentEvent = { type: "done", id: "m1" };
 	expect(reduceSandboxes(start, other)).toBe(start);
+});
+
+test("toolCall records textOffset at the current content length", () => {
+	let m: UIMessage = { id: "m1", role: "assistant", content: "", reasoning: "", tools: [], pending: true };
+	m = applyEvent(m, { type: "delta", id: "m1", text: "Looking now…" });
+	m = applyEvent(m, {
+		type: "toolCall",
+		call: { id: "m1", toolCallId: "t1", toolName: "runCommand", input: {} },
+	});
+	m = applyEvent(m, { type: "delta", id: "m1", text: " done." });
+	expect(m.tools[0].textOffset).toBe("Looking now…".length);
 });
 
 const msg = (tools: UIMessage["tools"]): UIMessage => ({

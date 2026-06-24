@@ -103,6 +103,7 @@ export function applyEvent(m: UIMessage, event: AgentEvent): UIMessage {
 						toolName: event.call.toolName,
 						input: event.call.input,
 						startedAt: Date.now(),
+						textOffset: m.content.length,
 					},
 				],
 			};
