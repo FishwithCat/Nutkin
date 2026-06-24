@@ -22,6 +22,29 @@ const MAX_OUTPUT = 10_000;
 const cap = (s: string) =>
 	s.length > MAX_OUTPUT ? `${s.slice(0, MAX_OUTPUT)}\n…[truncated]` : s;
 
+// Cap a before/after pair for the UI diff. A blind prefix cap hides the change
+// when it sits past MAX_OUTPUT (e.g. package-lock.json: both sides identical in
+// the first 10k → diff shows nothing). So drop the shared head/tail lines first,
+// keeping a little context, so whatever budget is left lands on the actual diff.
+// ponytail: line numbers restart at 1 in truncated files; fine for lockfile noise.
+export function capPair(oldText: string, newText: string): ReviewFileContent {
+	if (oldText.length <= MAX_OUTPUT && newText.length <= MAX_OUTPUT) {
+		return { oldText, newText };
+	}
+	const o = oldText.split("\n");
+	const n = newText.split("\n");
+	let p = 0;
+	while (p < o.length && p < n.length && o[p] === n[p]) p++;
+	let s = 0;
+	while (s < o.length - p && s < n.length - p && o[o.length - 1 - s] === n[n.length - 1 - s]) s++;
+	const ctx = 3;
+	const head = Math.max(0, p - ctx);
+	const tail = Math.max(0, s - ctx);
+	const oTrim = o.slice(head, o.length - tail).join("\n");
+	const nTrim = n.slice(head, n.length - tail).join("\n");
+	return { oldText: cap(oTrim), newText: cap(nTrim), truncated: true };
+}
+
 function bucket(sessionId: string): Map<string, Sandbox> {
 	let b = sessions.get(sessionId);
 	if (!b) {
@@ -181,14 +204,7 @@ export async function writeFile(
 	}
 	const oldText = await readFileRaw(sandbox, path);
 	await writeFileRaw(sandbox, path, content);
-	const truncated = content.length > MAX_OUTPUT || (oldText?.length ?? 0) > MAX_OUTPUT;
-	return {
-		path,
-		created: oldText === null,
-		oldText: cap(oldText ?? ""),
-		newText: cap(content),
-		...(truncated ? { truncated: true } : {}),
-	};
+	return { path, created: oldText === null, ...capPair(oldText ?? "", content) };
 }
 
 // Replace a substring within an existing file. Returns before/after text for the
@@ -218,13 +234,7 @@ export async function editFile(
 		? oldText.split(oldString).join(newString)
 		: oldText.replace(oldString, newString);
 	await writeFileRaw(sandbox, path, newText);
-	const truncated = oldText.length > MAX_OUTPUT || newText.length > MAX_OUTPUT;
-	return {
-		path,
-		oldText: cap(oldText),
-		newText: cap(newText),
-		...(truncated ? { truncated: true } : {}),
-	};
+	return { path, ...capPair(oldText, newText) };
 }
 
 // --- Per-turn git snapshots ------------------------------------------------
@@ -435,8 +445,7 @@ export async function reviewFile(
 	const base = await resolveBase(sandbox, repoRoot);
 	const oldText = await showAt(sandbox, repoRoot, base, path);
 	const newText = await showAt(sandbox, repoRoot, "HEAD", path);
-	const truncated = oldText.length > MAX_OUTPUT || newText.length > MAX_OUTPUT;
-	return { oldText: cap(oldText), newText: cap(newText), ...(truncated ? { truncated: true } : {}) };
+	return capPair(oldText, newText);
 }
 
 // A promise that rejects when the signal aborts, so it can lose a Promise.race
