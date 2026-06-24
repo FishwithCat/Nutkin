@@ -192,6 +192,16 @@ from the same batch even if the files have changed since. Because the anchor
 pins an immutable commit, threads never need re-anchoring; no extra storage is
 added (anchors and commits ride in the existing SQLite JSON).
 
+A thread turn also runs in **read-only "discuss" mode**: because the user is
+asking *about* a change rather than for more edits, the agent gets a restricted
+tool set — just `getCurrentTime`, `runCommand`, and `listSandboxes`. The mutating
+tools (`writeFile`, `editFile`, `createSandbox`, `stopSandbox`) are withheld, so
+a discussion can inspect the snapshot (`git show …`, `cat`, `grep`) but can never
+edit files or create/stop sandboxes from the side panel. The mode rides on the
+`userMessage` RPC (`mode: "build" | "discuss"`, defaulting to `build`); `App.tsx`
+sends `"discuss"` for any anchored turn, and `runAgent` (`src/bun/agent.ts`) both
+filters the tools and swaps in a discussion-focused system prompt.
+
 ## How HMR Works
 
 When you run `bun run dev:hmr`:

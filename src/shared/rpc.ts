@@ -133,6 +133,12 @@ export type AgentRPC = {
 				messages: ChatMessage[];
 				/** The session's project context (default image + bound repos). */
 				project?: { name: string; image: string; repos: ProjectRepo[] };
+				/**
+				 * How the turn runs. "discuss" (thread turns hanging off a diff card)
+				 * gives the agent a read-only tool set — no file edits, no sandbox
+				 * create/stop. Defaults to "build" when omitted.
+				 */
+				mode?: "build" | "discuss";
 			};
 			/** Upsert a project. */
 			saveProject: Project;

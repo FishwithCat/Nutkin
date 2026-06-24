@@ -48,6 +48,34 @@ const SYSTEM_PROMPT = [
 	"Answer in the same language the user writes in.",
 ].join(" ");
 
+// "discuss" mode is used for thread turns hanging off a diff card: the user is
+// asking about a specific change, not asking for more edits. The agent gets a
+// read-only tool set (no writeFile/editFile, no createSandbox/stopSandbox) so it
+// can only inspect the snapshot and answer, never mutate files or sandboxes.
+const DISCUSS_SYSTEM_PROMPT = [
+	"You are a helpful AI assistant powered by DeepSeek, discussing a specific code",
+	"change with the user. This is a discussion turn, so you have READ-ONLY access:",
+	"getCurrentTime, and per-session Linux sandboxes for inspection only (runCommand,",
+	"listSandboxes). You CANNOT create, modify, or delete files, and you CANNOT create",
+	"or stop sandboxes — those tools are intentionally unavailable here. Use runCommand",
+	"to look at code (e.g. 'git show <hash>:<file>', 'git diff', 'cat', 'grep') and",
+	"answer the user's questions about the change. If the user wants you to actually",
+	"make an edit, explain that this is a discussion and they should ask in the main",
+	"conversation instead of trying to edit from here.",
+	"CRITICAL: The ONLY way you learn what a command did is by calling runCommand and",
+	"reading the tool result that comes back. Never invent command output, file",
+	"contents, or 'I ran X and it returned Y' — if no tool result for it exists in this",
+	"conversation, you have NOT run it and you do NOT know the outcome.",
+	"Answer in the same language the user writes in.",
+].join(" ");
+
+/** How an agent turn runs: "build" can edit, "discuss" is read-only. */
+export type AgentMode = "build" | "discuss";
+
+// Tools available in "discuss" mode: read-only inspection only. Everything else
+// (writeFile, editFile, createSandbox, stopSandbox) is withheld.
+const DISCUSS_TOOLS = ["getCurrentTime", "runCommand", "listSandboxes"] as const;
+
 // The agent's tools. Each has a zod input schema and an `execute` function.
 export const tools = {
 	getCurrentTime: tool({
@@ -178,14 +206,17 @@ function sandboxTools(sessionId: string, defaultImage = "alpine") {
 
 // Append the session's project context to the base prompt: the default sandbox
 // image and any bound repositories the agent can clone on demand.
-function buildSystemPrompt(project?: ProjectContext): string {
-	if (!project) return SYSTEM_PROMPT;
+function buildSystemPrompt(project?: ProjectContext, mode: AgentMode = "build"): string {
+	const base = mode === "discuss" ? DISCUSS_SYSTEM_PROMPT : SYSTEM_PROMPT;
+	if (!project) return base;
 	const lines = [
-		SYSTEM_PROMPT,
+		base,
 		"",
 		`This session belongs to the project "${project.name}". New sandboxes default to the "${project.image}" image.`,
 	];
-	if (project.repos.length > 0) {
+	// Cloning instructions only make sense for an editing turn; a discussion
+	// inspects code that is already in the sandbox at the pinned commit.
+	if (mode !== "discuss" && project.repos.length > 0) {
 		lines.push(
 			"The project is bound to these git repositories. When you need their code,",
 			"clone one into a sandbox with runCommand (e.g. `git clone <url> -b <branch>`):",
@@ -217,6 +248,7 @@ export async function runAgent(
 	project: ProjectContext | undefined,
 	events: AgentEvents,
 	signal?: AbortSignal,
+	mode: AgentMode = "build",
 ): Promise<void> {
 	if (!process.env.DEEPSEEK_API_KEY) {
 		events.onError(
@@ -227,11 +259,22 @@ export async function runAgent(
 	}
 
 	try {
+		// In "discuss" mode the agent is read-only: keep just the inspection tools
+		// so it can never write files or create/stop sandboxes.
+		const allTools = { ...tools, ...sandboxTools(sessionId, project?.image) };
+		const availableTools =
+			mode === "discuss"
+				? Object.fromEntries(
+						Object.entries(allTools).filter(([name]) =>
+							(DISCUSS_TOOLS as readonly string[]).includes(name),
+						),
+					)
+				: allTools;
 		const result = streamText({
 			model: deepseek(MODEL),
-			system: buildSystemPrompt(project),
+			system: buildSystemPrompt(project, mode),
 			messages,
-			tools: { ...tools, ...sandboxTools(sessionId, project?.image) },
+			tools: availableTools,
 			// The agentic loop: keep taking steps (model call -> tool calls ->
 			// model call ...) until the model stops or we hit 50 steps.
 			stopWhen: stepCountIs(50),

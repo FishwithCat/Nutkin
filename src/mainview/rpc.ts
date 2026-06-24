@@ -62,8 +62,9 @@ export function sendUserMessage(
 	sessionId: string,
 	messages: ChatMessage[],
 	project?: { name: string; image: string; repos: ProjectRepo[] },
+	mode: "build" | "discuss" = "build",
 ) {
-	rpc.send.userMessage({ assistantId, sessionId, messages, project });
+	rpc.send.userMessage({ assistantId, sessionId, messages, project, mode });
 }
 
 /** Abort the in-flight agent turn streaming into `assistantId`. */

@@ -223,7 +223,7 @@ const rpc = BrowserView.defineRPC<AgentRPC>({
 				// Tear down the chat's sandboxes (rootfs included) — fire and forget.
 				void removeSessionSandboxes(id);
 			},
-			userMessage: ({ assistantId, sessionId, messages, project }) => {
+			userMessage: ({ assistantId, sessionId, messages, project, mode }) => {
 				const modelMessages = messages as ModelMessage[];
 				const controller = new AbortController();
 				running.set(assistantId, controller);
@@ -276,6 +276,7 @@ const rpc = BrowserView.defineRPC<AgentRPC>({
 						},
 					},
 					controller.signal,
+					mode,
 				);
 			},
 			abortTurn: (assistantId) => running.get(assistantId)?.abort(),

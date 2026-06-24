@@ -227,7 +227,15 @@ function App() {
 			),
 		);
 		if (!anchor) setInput("");
-		sendUserMessage(assistantId, activeTask.id, history, projectCtx);
+		// Thread turns (anchored to a diff card) are discussions: the agent gets a
+		// read-only tool set so it can inspect the change but not edit from here.
+		sendUserMessage(
+			assistantId,
+			activeTask.id,
+			history,
+			projectCtx,
+			anchor ? "discuss" : "build",
+		);
 		return true;
 	}
 
