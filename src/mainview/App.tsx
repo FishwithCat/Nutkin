@@ -470,7 +470,10 @@ function App() {
 					{activeTask && !reviewOpen && (
 						<TaskHeader
 							task={activeTask}
-							canReview={activeTask.sandboxes.length > 0}
+							canReview={
+							activeTask.sandboxes.length > 0 &&
+							(activeProject?.repos.length ?? 0) > 0
+						}
 							onReview={() => setReviewOpen(true)}
 						/>
 					)}
