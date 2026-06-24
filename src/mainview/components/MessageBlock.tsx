@@ -133,12 +133,6 @@ export const MessageBlock = memo(function MessageBlock({
 					),
 				)}
 
-				{empty && (
-					<div className="flex gap-1 py-1.5">
-						<Dot /> <Dot delay="150ms" /> <Dot delay="300ms" />
-					</div>
-				)}
-
 			{message.error && (
 				<div className="flex items-start gap-2 text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
 					<WarningIcon />
@@ -161,11 +155,10 @@ function ReasoningPanel({ text, live }: { text: string; live: boolean }) {
 				onClick={() => setOpen((v) => !v)}
 				className="w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-stone-50 transition-colors"
 			>
-				<Brain size={14} className="shrink-0 text-stone-400" aria-hidden="true" />
-				<span className={`min-w-0 flex-1 truncate text-sm font-medium text-stone-700 ${live ? "animate-pulse" : ""}`}>
+				<Brain size={14} className={`shrink-0 transition-colors duration-700 ${live ? "text-clay-500" : "text-stone-400"}`} aria-hidden="true" />
+				<span className={`min-w-0 flex-1 truncate text-xs text-stone-400`}>
 					{text}
 				</span>
-				{live && <Dot />}
 				<ChevronRight
 					size={14}
 					className={`ml-auto shrink-0 text-stone-400 transition-transform ${open ? "rotate-90" : ""}`}
@@ -197,14 +190,5 @@ function WarningIcon() {
 			<line x1="12" y1="9" x2="12" y2="13" />
 			<line x1="12" y1="17" x2="12.01" y2="17" />
 		</svg>
-	);
-}
-
-function Dot({ delay = "0ms" }: { delay?: string }) {
-	return (
-		<span
-			className="w-1.5 h-1.5 rounded-full bg-stone-400 animate-bounce"
-			style={{ animationDelay: delay }}
-		/>
 	);
 }
