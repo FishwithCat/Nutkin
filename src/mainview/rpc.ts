@@ -65,7 +65,7 @@ export function sendUserMessage(
 	assistantId: string,
 	sessionId: string,
 	messages: ChatMessage[],
-	project?: { name: string; image: string; repos: ProjectRepo[] },
+	project?: { id: string; name: string; image: string; repos: ProjectRepo[] },
 	mode: "build" | "discuss" = "build",
 	sandboxes: SessionSandbox[] = [],
 ) {

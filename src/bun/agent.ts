@@ -16,10 +16,11 @@ import {
 	stopSandbox,
 	writeFile,
 } from "./sandbox";
-import type { ProjectRepo, SessionSandbox } from "../shared/rpc";
+import type { Knowledge, KnowledgeType, ProjectRepo, SessionSandbox } from "../shared/rpc";
 
-/** Project context for a session: default sandbox image + bound repositories. */
+/** Project context for a session: id + default sandbox image + bound repositories. */
 export interface ProjectContext {
+	id: string;
 	name: string;
 	image: string;
 	repos: ProjectRepo[];
@@ -67,6 +68,13 @@ const SYSTEM_PROMPT = [
 	"When you need to do something in a sandbox, emit the tool call and wait for its",
 	"result; do not narrate the steps as if already done. If a tool is unavailable,",
 	"say so plainly instead of pretending.",
+	"When you discover a project convention, architecture decision, background fact, or",
+	"domain term worth keeping for later, proactively call addKnowledge to record it.",
+	"Entries you add are saved as PENDING REVIEW and only join the active knowledge base",
+	"once a human approves them, so don't hesitate — over-recording is harmless. Record",
+	"only durable facts about the project itself; NEVER put sandbox or session details",
+	"(sandbox names, images, commands you ran, transient build/run output) in knowledge —",
+	"those are ephemeral and don't belong there.",
 	"Answer in the same language the user writes in.",
 ].join(" ");
 
@@ -91,6 +99,13 @@ const DISCUSS_SYSTEM_PROMPT = [
 	"reading the tool result that comes back. Never invent command output, file",
 	"contents, or 'I ran X and it returned Y' — if no tool result for it exists in this",
 	"conversation, you have NOT run it and you do NOT know the outcome.",
+	"When you discover a project convention, architecture decision, background fact, or",
+	"domain term worth keeping for later, proactively call addKnowledge to record it.",
+	"Entries you add are saved as PENDING REVIEW and only join the active knowledge base",
+	"once a human approves them, so don't hesitate — over-recording is harmless. Record",
+	"only durable facts about the project itself; NEVER put sandbox or session details",
+	"(sandbox names, images, commands you ran, transient build/run output) in knowledge —",
+	"those are ephemeral and don't belong there.",
 	"Answer in the same language the user writes in.",
 ].join(" ");
 
@@ -99,7 +114,7 @@ export type AgentMode = "build" | "discuss";
 
 // Tools available in "discuss" mode: read-only inspection only. Everything else
 // (writeFile, editFile, createSandbox, stopSandbox) is withheld.
-const DISCUSS_TOOLS = ["getCurrentTime", "runCommand", "listSandboxes", "refactor", "webFetch"] as const;
+const DISCUSS_TOOLS = ["getCurrentTime", "runCommand", "listSandboxes", "refactor", "webFetch", "addKnowledge"] as const;
 
 // The agent's tools. Each has a zod input schema and an `execute` function.
 export const tools = {
@@ -274,6 +289,43 @@ function sandboxTools(sessionId: string, defaultImage = "alpine") {
 	};
 }
 
+// Lets the agent file a piece of project knowledge. It's always written as
+// reviewed:false so it lands in the 待审核 queue — a human approves it before it
+// joins the active KB. `save` is injected so agent.ts stays DB-agnostic.
+function knowledgeTool(projectId: string, save: (k: Knowledge) => void) {
+	return {
+		addKnowledge: tool({
+			description:
+				"Record a piece of durable project knowledge (a convention, architecture decision, background fact, or domain term) into the project's knowledge base. The entry is saved as PENDING REVIEW — a human must approve it before the agent learns it or it is cited in reviews. Call this whenever you uncover something worth keeping for later. Only record facts about the project itself — NEVER sandbox or session details (sandbox names, images, commands you ran, transient build/run output); those are ephemeral and do not belong in the knowledge base.",
+			inputSchema: z.object({
+				title: z.string().describe("Short title for the entry, e.g. 'Money is stored in cents'."),
+				description: z
+					.string()
+					.describe("The knowledge itself, in Markdown. Be specific and self-contained."),
+				type: z
+					.enum(["background", "architecture", "convention", "glossary"])
+					.describe(
+						"Category: 'background', 'architecture', 'convention', or 'glossary'.",
+					),
+			}),
+			execute: async ({ title, description, type }) => {
+				const entry: Knowledge = {
+					id: crypto.randomUUID(),
+					projectId,
+					title,
+					description,
+					type: type as KnowledgeType,
+					createdAt: Date.now(),
+					isAvailable: true,
+					reviewed: false,
+				};
+				save(entry);
+				return { saved: true, status: "pending-review", id: entry.id, title, type };
+			},
+		}),
+	};
+}
+
 // Append the session's project context to the base prompt: the default sandbox
 // image and any bound repositories the agent can clone on demand.
 function buildSystemPrompt(
@@ -337,6 +389,7 @@ export async function runAgent(
 	signal?: AbortSignal,
 	mode: AgentMode = "build",
 	sandboxes: SessionSandbox[] = [],
+	saveKnowledge?: (k: Knowledge) => void,
 ): Promise<void> {
 	if (!process.env.DEEPSEEK_API_KEY) {
 		events.onError(
@@ -349,7 +402,12 @@ export async function runAgent(
 	try {
 		// In "discuss" mode the agent is read-only: keep just the inspection tools
 		// so it can never write files or create/stop sandboxes.
-		const allTools = { ...tools, ...sandboxTools(sessionId, project?.image) };
+		const allTools = {
+			...tools,
+			...sandboxTools(sessionId, project?.image),
+			// Only offer addKnowledge when we know the project and have a sink to save to.
+			...(project?.id && saveKnowledge ? knowledgeTool(project.id, saveKnowledge) : {}),
+		};
 		const availableTools =
 			mode === "discuss"
 				? Object.fromEntries(

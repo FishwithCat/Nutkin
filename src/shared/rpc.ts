@@ -210,8 +210,8 @@ export type AgentRPC = {
 				/** Conversation id; scopes the agent's sandboxes to this session. */
 				sessionId: string;
 				messages: ChatMessage[];
-				/** The session's project context (default image + bound repos). */
-				project?: { name: string; image: string; repos: ProjectRepo[] };
+				/** The session's project context (id + default image + bound repos). */
+				project?: { id: string; name: string; image: string; repos: ProjectRepo[] };
 				/** Sandboxes already created in this session, injected into the prompt. */
 				sandboxes?: SessionSandbox[];
 				/**

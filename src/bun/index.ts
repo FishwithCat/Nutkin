@@ -174,6 +174,21 @@ const selectKnowledge = db.query<
 );
 const deleteKnowledgeRow = db.query("DELETE FROM knowledge WHERE id = $id");
 
+// Write one knowledge entry. Shared by the webview's saveKnowledge handler and
+// the agent's addKnowledge tool (which always passes reviewed:false).
+function persistKnowledge(k: Knowledge) {
+	upsertKnowledge.run({
+		$id: k.id,
+		$project_id: k.projectId,
+		$title: k.title,
+		$description: k.description,
+		$type: k.type,
+		$created_at: k.createdAt,
+		$is_available: k.isAvailable ? 1 : 0,
+		$reviewed: k.reviewed ? 1 : 0,
+	});
+}
+
 const getState = db.query<{ value: string }, { $key: string }>(
 	"SELECT value FROM app_state WHERE key = $key",
 );
@@ -286,16 +301,7 @@ const rpc = BrowserView.defineRPC<AgentRPC>({
 				void removeSessionSandboxes(id);
 			},
 			saveKnowledge: (k: Knowledge) => {
-				upsertKnowledge.run({
-					$id: k.id,
-					$project_id: k.projectId,
-					$title: k.title,
-					$description: k.description,
-					$type: k.type,
-					$created_at: k.createdAt,
-					$is_available: k.isAvailable ? 1 : 0,
-					$reviewed: k.reviewed ? 1 : 0,
-				});
+				persistKnowledge(k);
 			},
 			deleteKnowledge: (id) => {
 				deleteKnowledgeRow.run({ $id: id });
@@ -355,6 +361,7 @@ const rpc = BrowserView.defineRPC<AgentRPC>({
 					controller.signal,
 					mode,
 					sandboxes ?? [],
+					persistKnowledge,
 				);
 			},
 			abortTurn: (assistantId) => running.get(assistantId)?.abort(),

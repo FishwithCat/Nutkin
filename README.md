@@ -137,6 +137,7 @@ Tools (in `src/bun/agent.ts`, backed by `src/bun/sandbox.ts`):
 - `stopSandbox(name?)` — pause a sandbox (files preserved; resumes on next command).
 - `listSandboxes()` — this session's sandboxes (including persisted ones) with status.
 - `webFetch(url)` — fetch an http(s) URL and return its content as plain text (HTML stripped, long pages truncated). Read-only, so it's also available in discuss mode. Plus `getCurrentTime(timeZone?)`.
+- `addKnowledge(title, description, type)` — file a piece of project knowledge (`background` / `architecture` / `convention` / `glossary`) into the project's KB. Always written **待审核** (`reviewed:false`), so a human must approve it before the agent learns it. Available in both build and discuss modes; the persistence callback is injected from `src/bun/index.ts` so `agent.ts` stays DB-agnostic.
 
 The agent is steered to change files with `writeFile`/`editFile` rather than shell
 redirection (`echo >`, `sed -i`), because those tools capture the file's content
@@ -262,8 +263,9 @@ and a clickable "已被 Agent 学习 / 未启用" badge that toggles `isAvailabl
 inline editor has a Markdown toolbar (heading/bold/italic/list/code/link, the
 pure text transforms live in `mdToolbar.ts`).
 
-**Review gate.** Every entry carries a `reviewed` flag. New entries (the 新增 `+`
-button) enter **unreviewed** and appear only under **待审核** — quarantined from
+**Review gate.** Every entry carries a `reviewed` flag. New entries — whether from
+the 新增 `+` button or filed by the agent's `addKnowledge` tool — enter
+**unreviewed** and appear only under **待审核** — quarantined from
 the active KB. Their detail pane shows a review action bar: 驳回 (delete),
 编辑后通过 (edit then approve), 通过入库 (approve). Approving sets `reviewed = true`
 and the entry joins 全部 and its type. 全部 and the type tabs count only reviewed

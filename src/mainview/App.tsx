@@ -212,6 +212,7 @@ function App() {
 		// Project context handed to the agent: default sandbox image + bound repos.
 		const projectCtx = activeProject
 			? {
+					id: activeProject.id,
 					name: activeProject.name,
 					image: activeProject.image,
 					repos: activeProject.repos,
