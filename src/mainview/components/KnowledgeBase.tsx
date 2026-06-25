@@ -121,6 +121,7 @@ export function KnowledgeBase({ projectId }: { projectId: string }) {
 					...existing,
 					title,
 					description: draft.description,
+					updatedAt: Date.now(),
 					reviewed: draft.approveOnSave ? true : existing.reviewed,
 				}
 			: {
@@ -130,6 +131,7 @@ export function KnowledgeBase({ projectId }: { projectId: string }) {
 					description: draft.description,
 					type: draft.type,
 					createdAt: Date.now(),
+					updatedAt: Date.now(),
 					isAvailable: true,
 					// New entries enter review; approve them to join the active KB.
 					reviewed: false,

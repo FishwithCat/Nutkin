@@ -170,6 +170,7 @@ export interface Knowledge {
 	description: string;
 	type: KnowledgeType;
 	createdAt: number; // ms epoch
+	updatedAt: number; // ms epoch — last content edit, for judging freshness
 	isAvailable: boolean;
 	// Whether the entry has passed review and joined the active KB. Unreviewed
 	// entries are quarantined under the 待审核 category until approved.

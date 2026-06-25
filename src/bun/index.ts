@@ -61,19 +61,26 @@ db.run(
 		description  TEXT NOT NULL,
 		type         TEXT NOT NULL,
 		created_at   INTEGER NOT NULL,
+		updated_at   INTEGER NOT NULL DEFAULT 0,
 		is_available INTEGER NOT NULL DEFAULT 1,
 		reviewed     INTEGER NOT NULL DEFAULT 1
 	)`,
 );
-// Migration: `reviewed` gates an entry into the active KB. Pre-existing rows are
-// already in use, so they default to reviewed=1. Guard so it's only added once.
-if (
-	!db
+const knowledgeColumns = () =>
+	db
 		.query<{ name: string }, []>("PRAGMA table_info(knowledge)")
 		.all()
-		.some((c) => c.name === "reviewed")
-) {
+		.map((c) => c.name);
+// Migration: `reviewed` gates an entry into the active KB. Pre-existing rows are
+// already in use, so they default to reviewed=1. Guard so it's only added once.
+if (!knowledgeColumns().includes("reviewed")) {
 	db.run("ALTER TABLE knowledge ADD COLUMN reviewed INTEGER NOT NULL DEFAULT 1");
+}
+// Migration: `updated_at` tracks last content edit so the agent can weigh
+// freshness. Backfill existing rows from created_at (best available proxy).
+if (!knowledgeColumns().includes("updated_at")) {
+	db.run("ALTER TABLE knowledge ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0");
+	db.run("UPDATE knowledge SET updated_at = created_at WHERE updated_at = 0");
 }
 
 // Migration: tasks predate projects, so add the column and back-fill a default
@@ -153,26 +160,37 @@ const selectProjects = db.query<
 const deleteProjectRow = db.query("DELETE FROM projects WHERE id = $id");
 
 const upsertKnowledge = db.query(
-	`INSERT INTO knowledge (id, project_id, title, description, type, created_at, is_available, reviewed)
-	 VALUES ($id, $project_id, $title, $description, $type, $created_at, $is_available, $reviewed)
-	 ON CONFLICT(id) DO UPDATE SET title = $title, description = $description, type = $type, is_available = $is_available, reviewed = $reviewed`,
+	`INSERT INTO knowledge (id, project_id, title, description, type, created_at, updated_at, is_available, reviewed)
+	 VALUES ($id, $project_id, $title, $description, $type, $created_at, $updated_at, $is_available, $reviewed)
+	 ON CONFLICT(id) DO UPDATE SET title = $title, description = $description, type = $type, updated_at = $updated_at, is_available = $is_available, reviewed = $reviewed`,
 );
-const selectKnowledge = db.query<
-	{
-		id: string;
-		project_id: string;
-		title: string;
-		description: string;
-		type: string;
-		created_at: number;
-		is_available: number;
-		reviewed: number;
-	},
-	{ $project_id: string }
->(
-	"SELECT id, project_id, title, description, type, created_at, is_available, reviewed FROM knowledge WHERE project_id = $project_id ORDER BY created_at DESC",
+type KnowledgeRow = {
+	id: string;
+	project_id: string;
+	title: string;
+	description: string;
+	type: string;
+	created_at: number;
+	updated_at: number;
+	is_available: number;
+	reviewed: number;
+};
+const selectKnowledge = db.query<KnowledgeRow, { $project_id: string }>(
+	"SELECT id, project_id, title, description, type, created_at, updated_at, is_available, reviewed FROM knowledge WHERE project_id = $project_id ORDER BY created_at DESC",
 );
 const deleteKnowledgeRow = db.query("DELETE FROM knowledge WHERE id = $id");
+
+const rowToKnowledge = (row: KnowledgeRow): Knowledge => ({
+	id: row.id,
+	projectId: row.project_id,
+	title: row.title,
+	description: row.description,
+	type: row.type as Knowledge["type"],
+	createdAt: row.created_at,
+	updatedAt: row.updated_at,
+	isAvailable: row.is_available === 1,
+	reviewed: row.reviewed === 1,
+});
 
 // Write one knowledge entry. Shared by the webview's saveKnowledge handler and
 // the agent's addKnowledge tool (which always passes reviewed:false).
@@ -184,6 +202,7 @@ function persistKnowledge(k: Knowledge) {
 		$description: k.description,
 		$type: k.type,
 		$created_at: k.createdAt,
+		$updated_at: k.updatedAt,
 		$is_available: k.isAvailable ? 1 : 0,
 		$reviewed: k.reviewed ? 1 : 0,
 	});
@@ -252,16 +271,7 @@ const rpc = BrowserView.defineRPC<AgentRPC>({
 			reviewFile: ({ sessionId, sandboxName, repoRoot, path }) =>
 				reviewFile(sessionId, sandboxName, repoRoot, path),
 			loadKnowledge: ({ projectId }): Knowledge[] =>
-				selectKnowledge.all({ $project_id: projectId }).map((row) => ({
-					id: row.id,
-					projectId: row.project_id,
-					title: row.title,
-					description: row.description,
-					type: row.type as Knowledge["type"],
-					createdAt: row.created_at,
-					isAvailable: row.is_available === 1,
-					reviewed: row.reviewed === 1,
-				})),
+				selectKnowledge.all({ $project_id: projectId }).map(rowToKnowledge),
 		},
 		messages: {
 			saveProject: (project: Project) => {
@@ -308,6 +318,14 @@ const rpc = BrowserView.defineRPC<AgentRPC>({
 			},
 			userMessage: ({ assistantId, sessionId, messages, project, mode, sandboxes }) => {
 				const modelMessages = messages as ModelMessage[];
+				// Inject the project's approved, enabled knowledge into the agent's
+				// context (reviewed = passed the human gate, isAvailable = toggled on).
+				const knowledge = project
+					? selectKnowledge
+							.all({ $project_id: project.id })
+							.map(rowToKnowledge)
+							.filter((k) => k.reviewed && k.isAvailable)
+					: [];
 				const controller = new AbortController();
 				running.set(assistantId, controller);
 				// Track which files (and in which sandbox) this turn changed, so we
@@ -362,6 +380,7 @@ const rpc = BrowserView.defineRPC<AgentRPC>({
 					mode,
 					sandboxes ?? [],
 					persistKnowledge,
+					knowledge,
 				);
 			},
 			abortTurn: (assistantId) => running.get(assistantId)?.abort(),

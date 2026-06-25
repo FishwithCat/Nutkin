@@ -316,6 +316,7 @@ function knowledgeTool(projectId: string, save: (k: Knowledge) => void) {
 					description,
 					type: type as KnowledgeType,
 					createdAt: Date.now(),
+					updatedAt: Date.now(),
 					isAvailable: true,
 					reviewed: false,
 				};
@@ -332,6 +333,7 @@ function buildSystemPrompt(
 	project?: ProjectContext,
 	mode: AgentMode = "build",
 	sandboxes: SessionSandbox[] = [],
+	knowledge: Knowledge[] = [],
 ): string {
 	const base = mode === "discuss" ? DISCUSS_SYSTEM_PROMPT : SYSTEM_PROMPT;
 	const lines = [base];
@@ -364,6 +366,22 @@ function buildSystemPrompt(
 			),
 		);
 	}
+	// Approved knowledge base — established facts the human has reviewed and
+	// signed off on. The agent should trust these rather than re-deriving them.
+	// ponytail: whole approved KB inlined into the prompt; add relevance ranking
+	// or a token cap if the KB grows past what fits the context window.
+	if (knowledge.length > 0) {
+		lines.push(
+			"",
+			"This project has an approved knowledge base. Treat these as established",
+			"facts about the project — follow them without re-deriving or second-guessing.",
+			"Each entry is dated; prefer more recent knowledge if two entries conflict:",
+			...knowledge.map(
+				(k) =>
+					`- [${k.type}] (updated ${new Date(k.updatedAt).toISOString().slice(0, 10)}) ${k.title}: ${k.description}`,
+			),
+		);
+	}
 	return lines.join("\n");
 }
 
@@ -390,6 +408,7 @@ export async function runAgent(
 	mode: AgentMode = "build",
 	sandboxes: SessionSandbox[] = [],
 	saveKnowledge?: (k: Knowledge) => void,
+	knowledge: Knowledge[] = [],
 ): Promise<void> {
 	if (!process.env.DEEPSEEK_API_KEY) {
 		events.onError(
@@ -418,7 +437,7 @@ export async function runAgent(
 				: allTools;
 		const result = streamText({
 			model: deepseek(MODEL),
-			system: buildSystemPrompt(project, mode, sandboxes),
+			system: buildSystemPrompt(project, mode, sandboxes, knowledge),
 			messages,
 			tools: availableTools,
 			// The agentic loop: keep taking steps (model call -> tool calls ->
