@@ -14,11 +14,11 @@ export function TaskHeader({
 	const count = task.messages.length;
 	const busy = taskBusy(task);
 	return (
-		<div className="px-6 pt-6 pb-4 border-b border-stone-200 bg-stone-50 shrink-0">
+		<div className="px-6 pt-6 pb-4 border-b border-stone-200 bg-white shrink-0">
 			<div className="flex w-full items-start justify-between gap-3">
 				<div className="min-w-0">
 					<div className="flex items-center gap-3">
-						<h1 className="text-xl font-semibold text-stone-900">{task.title}</h1>
+						<h1 className="text-md font-semibold text-stone-900">{task.title}</h1>
 						{busy && (
 							<span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-clay-100 text-clay-700 text-xs font-medium">
 								<span className="w-1.5 h-1.5 rounded-full bg-clay-500 animate-pulse" />
