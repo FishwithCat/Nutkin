@@ -9,6 +9,7 @@ import type {
 	Knowledge,
 	PersistedTask,
 	Project,
+	ProjectEnv,
 	ProjectRepo,
 	ProjectSummary,
 	ReviewEntry,
@@ -67,7 +68,7 @@ export function sendUserMessage(
 	assistantId: string,
 	sessionId: string,
 	messages: ChatMessage[],
-	project?: { id: string; name: string; image: string; repos: ProjectRepo[] },
+	project?: { id: string; name: string; image: string; repos: ProjectRepo[]; env: ProjectEnv[] },
 	mode: "build" | "discuss" = "build",
 	sandboxes: SessionSandbox[] = [],
 ) {

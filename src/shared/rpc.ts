@@ -23,6 +23,12 @@ export interface ProjectRepo {
 	branch: string; // default branch to work on, e.g. main
 }
 
+/** One environment variable injected into the project's sandbox commands. */
+export interface ProjectEnv {
+	key: string;
+	value: string;
+}
+
 /**
  * A project groups a set of chat sessions around one or more code repositories
  * and a default sandbox image. Sessions (tasks) belong to exactly one project.
@@ -32,6 +38,7 @@ export interface Project {
 	name: string;
 	repos: ProjectRepo[];
 	image: string; // default sandbox image for this project's sessions
+	env: ProjectEnv[]; // env vars injected into this project's sandbox commands
 	createdAt: number;
 	updatedAt: number;
 }
@@ -247,8 +254,8 @@ export type AgentRPC = {
 				/** Conversation id; scopes the agent's sandboxes to this session. */
 				sessionId: string;
 				messages: ChatMessage[];
-				/** The session's project context (id + default image + bound repos). */
-				project?: { id: string; name: string; image: string; repos: ProjectRepo[] };
+				/** The session's project context (id + default image + bound repos + env). */
+				project?: { id: string; name: string; image: string; repos: ProjectRepo[]; env: ProjectEnv[] };
 				/** Sandboxes already created in this session, injected into the prompt. */
 				sandboxes?: SessionSandbox[];
 				/**

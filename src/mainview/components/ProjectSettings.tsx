@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { ArrowLeft, GitBranch, Link2, Trash2, X } from "lucide-react";
-import type { Project, ProjectRepo } from "../types";
+import { ArrowLeft, GitBranch, Link2, Plus, Trash2, X } from "lucide-react";
+import type { Project, ProjectEnv, ProjectRepo } from "../types";
 import { IMAGE_PRESETS, makeRepo, repoHostPath } from "../projectUtils";
 import { Selector } from "./Selector";
 
@@ -22,6 +22,7 @@ export function ProjectSettings({
 	const [name, setName] = useState(project.name);
 	const [url, setUrl] = useState("");
 	const [repos, setRepos] = useState<ProjectRepo[]>(project.repos);
+	const [env, setEnv] = useState<ProjectEnv[]>(project.env ?? []);
 	// If the project's image isn't a known preset, start in "custom" mode with
 	// the current value prefilled.
 	const presetMatch = IMAGE_PRESETS.includes(project.image);
@@ -48,6 +49,18 @@ export function ProjectSettings({
 		setRepos((prev) => prev.filter((_, j) => j !== i));
 	}
 
+	function addEnv() {
+		setEnv((prev) => [...prev, { key: "", value: "" }]);
+	}
+
+	function setEnvField(i: number, field: "key" | "value", v: string) {
+		setEnv((prev) => prev.map((e, j) => (j === i ? { ...e, [field]: v } : e)));
+	}
+
+	function removeEnv(i: number) {
+		setEnv((prev) => prev.filter((_, j) => j !== i));
+	}
+
 	// Switching the dropdown: a real preset selects it; the sentinel flips to a
 	// free-text field (cleared so the user types fresh).
 	function onSelectImage(value: string) {
@@ -60,17 +73,20 @@ export function ProjectSettings({
 		}
 	}
 
-	const canSave = repos.length > 0;
-
 	function submit() {
-		if (!canSave) return;
-		const projectName = name.trim() || repos[0].name;
+		// Repos are optional now — fall back to a repo name, then the existing name.
+		const projectName = name.trim() || repos[0]?.name || project.name;
 		// Keep id + createdAt; bump updatedAt. (Not buildProject — that resets it.)
 		onSave({
 			...project,
 			name: projectName,
 			image: image.trim() || "alpine",
 			repos,
+			// Drop blank-key rows; trim keys. No dedup — last value wins, matching
+			// how envs() applies them in the sandbox.
+			env: env
+				.map((e) => ({ key: e.key.trim(), value: e.value }))
+				.filter((e) => e.key),
 			updatedAt: Date.now(),
 		});
 	}
@@ -201,6 +217,55 @@ export function ProjectSettings({
 						)}
 					</div>
 
+					<div>
+						<div className="flex items-center justify-between mb-1.5">
+							<label className="text-sm font-medium text-stone-700">环境变量</label>
+							<span className="text-xs text-stone-400">注入到本项目容器运行的命令</span>
+						</div>
+
+						<button
+							type="button"
+							onClick={addEnv}
+							className="flex items-center gap-1.5 rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm font-medium text-stone-600 hover:bg-stone-50 transition"
+						>
+							<Plus size={15} aria-hidden="true" />
+							添加变量
+						</button>
+
+						{env.length > 0 && (
+							<div className="mt-3 space-y-2">
+								{env.map((e, i) => (
+									<div
+										key={i}
+										className="flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-3 py-2"
+									>
+										<input
+											value={e.key}
+											onChange={(ev) => setEnvField(i, "key", ev.target.value)}
+											placeholder="KEY"
+											className="w-40 shrink-0 bg-transparent font-mono text-sm text-stone-800 placeholder:text-stone-400 outline-none"
+										/>
+										<span className="text-stone-400" aria-hidden="true">=</span>
+										<input
+											value={e.value}
+											onChange={(ev) => setEnvField(i, "value", ev.target.value)}
+											placeholder="value"
+											className="min-w-0 flex-1 bg-transparent font-mono text-sm text-stone-800 placeholder:text-stone-400 outline-none"
+										/>
+										<button
+											type="button"
+											onClick={() => removeEnv(i)}
+											className="w-6 h-6 rounded-md flex items-center justify-center text-stone-400 hover:bg-stone-200 hover:text-red-600 transition"
+											title="移除"
+										>
+											<X size={14} aria-hidden="true" />
+										</button>
+									</div>
+								))}
+							</div>
+						)}
+					</div>
+
 					<div className="rounded-xl border border-red-200 bg-red-50/50 p-4">
 						<h3 className="text-sm font-semibold text-red-700">危险区域</h3>
 						<p className="mt-1 text-xs text-stone-500">
@@ -248,8 +313,7 @@ export function ProjectSettings({
 				<button
 					type="button"
 					onClick={submit}
-					disabled={!canSave}
-					className="rounded-xl bg-clay-500 px-4 py-2 text-sm font-medium text-white hover:bg-clay-600 disabled:opacity-40 disabled:cursor-not-allowed transition"
+					className="rounded-xl bg-clay-500 px-4 py-2 text-sm font-medium text-white hover:bg-clay-600 transition"
 				>
 					保存
 				</button>

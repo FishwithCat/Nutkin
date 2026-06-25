@@ -49,10 +49,21 @@ db.run(
 		name       TEXT NOT NULL,
 		repos      TEXT NOT NULL,
 		image      TEXT NOT NULL,
+		env        TEXT NOT NULL DEFAULT '[]',
 		created_at INTEGER NOT NULL,
 		updated_at INTEGER NOT NULL
 	)`,
 );
+// Migration: `env` holds the project's sandbox env vars (JSON). Added after the
+// initial schema, so guard on the current columns (existing rows default to []).
+if (
+	!db
+		.query<{ name: string }, []>("PRAGMA table_info(projects)")
+		.all()
+		.some((c) => c.name === "env")
+) {
+	db.run("ALTER TABLE projects ADD COLUMN env TEXT NOT NULL DEFAULT '[]'");
+}
 db.run(
 	`CREATE TABLE IF NOT EXISTS app_state (
 		key   TEXT PRIMARY KEY,
@@ -140,9 +151,9 @@ const selectTaskIds = db.query<{ id: string }, { $project_id: string }>(
 const deleteTaskRow = db.query("DELETE FROM tasks WHERE id = $id");
 
 const upsertProject = db.query(
-	`INSERT INTO projects (id, name, repos, image, created_at, updated_at)
-	 VALUES ($id, $name, $repos, $image, $created_at, $updated_at)
-	 ON CONFLICT(id) DO UPDATE SET name = $name, repos = $repos, image = $image, updated_at = $updated_at`,
+	`INSERT INTO projects (id, name, repos, image, env, created_at, updated_at)
+	 VALUES ($id, $name, $repos, $image, $env, $created_at, $updated_at)
+	 ON CONFLICT(id) DO UPDATE SET name = $name, repos = $repos, image = $image, env = $env, updated_at = $updated_at`,
 );
 const selectProjects = db.query<
 	{
@@ -150,6 +161,7 @@ const selectProjects = db.query<
 		name: string;
 		repos: string;
 		image: string;
+		env: string;
 		created_at: number;
 		updated_at: number;
 		session_count: number;
@@ -157,7 +169,7 @@ const selectProjects = db.query<
 	},
 	[]
 >(
-	`SELECT p.id, p.name, p.repos, p.image, p.created_at, p.updated_at,
+	`SELECT p.id, p.name, p.repos, p.image, p.env, p.created_at, p.updated_at,
 	        COUNT(t.id) AS session_count, MAX(t.updated_at) AS last_activity
 	 FROM projects p LEFT JOIN tasks t ON t.project_id = p.id
 	 GROUP BY p.id
@@ -287,6 +299,7 @@ const rpc = BrowserView.defineRPC<AgentRPC>({
 					name: row.name,
 					repos: JSON.parse(row.repos),
 					image: row.image,
+					env: JSON.parse(row.env),
 					createdAt: row.created_at,
 					updatedAt: row.updated_at,
 					sessionCount: row.session_count,
@@ -326,6 +339,7 @@ const rpc = BrowserView.defineRPC<AgentRPC>({
 					$name: project.name,
 					$repos: JSON.stringify(project.repos),
 					$image: project.image,
+					$env: JSON.stringify(project.env ?? []),
 					$created_at: project.createdAt,
 					$updated_at: project.updatedAt,
 				});
@@ -416,9 +430,17 @@ const rpc = BrowserView.defineRPC<AgentRPC>({
 							running.delete(assistantId);
 							// Snapshot the repos this turn touched, then send the hashes
 							// (before `done`, so they persist with the turn) and finish.
+							// The commit step makes unbounded sandbox/git calls — if the
+							// sandbox is wedged it can hang forever, which would strand the
+							// turn on "运行中" and leave the composer stuck on Stop. Cap it
+							// with a timeout so `done` always fires.
+							// ponytail: 15s cap; raise if a huge tree legitimately needs longer.
 							void (async () => {
 								if (changed.length > 0) {
-									const commits = await commitChanges(sessionId, changed).catch(() => []);
+									const commits = await Promise.race([
+										commitChanges(sessionId, changed).catch(() => []),
+										new Promise<never[]>((r) => setTimeout(() => r([]), 15_000)),
+									]);
 									if (commits.length > 0)
 										rpc.send.assistantCommits({ id: assistantId, commits });
 								}

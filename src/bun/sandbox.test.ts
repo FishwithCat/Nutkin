@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { capPair, parseNameStatus } from "./sandbox";
+import { capPair, HostTimeoutError, parseNameStatus, withTimeout } from "./sandbox";
 
 // A change buried past the 10k cap must survive: a blind prefix cap would leave
 // both sides identical (diff shows nothing). capPair drops the shared head/tail.
@@ -34,4 +34,18 @@ test("parseNameStatus maps A/M/D and renames", () => {
 		{ status: "deleted", path: "src/old.ts" },
 		{ status: "modified", path: "src/to.ts" },
 	]);
+});
+
+// The fix for the hung writeFile: a wedged fs RPC must reject, not block forever.
+// The fuse must reject with HostTimeoutError specifically, so withSandbox can tell
+// a wedge (retry) from a relay-delivered error like the guest's ExecTimeoutError
+// (don't retry — re-running just doubles the wait).
+test("withTimeout rejects a hung op with HostTimeoutError, passes a fast one through", async () => {
+	await expect(withTimeout(new Promise(() => {}), 20, "fs op")).rejects.toBeInstanceOf(
+		HostTimeoutError,
+	);
+	expect(await withTimeout(Promise.resolve(42), 1000, "fs op")).toBe(42);
+	// A delivered rejection passes through untouched — NOT turned into a HostTimeoutError.
+	const guestTimeout = new Error("exec timed out after 120s");
+	await expect(withTimeout(Promise.reject(guestTimeout), 1000, "exec")).rejects.toBe(guestTimeout);
 });

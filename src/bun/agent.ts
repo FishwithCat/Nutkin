@@ -20,16 +20,18 @@ import type {
 	AppSettings,
 	Knowledge,
 	KnowledgeType,
+	ProjectEnv,
 	ProjectRepo,
 	SessionSandbox,
 } from "../shared/rpc";
 
-/** Project context for a session: id + default sandbox image + bound repositories. */
+/** Project context for a session: id + default sandbox image + bound repositories + env. */
 export interface ProjectContext {
 	id: string;
 	name: string;
 	image: string;
 	repos: ProjectRepo[];
+	env: ProjectEnv[];
 }
 
 // DeepSeek config lives in global 系统设置 (app_state), passed in per turn. The
@@ -189,7 +191,11 @@ export const tools = {
 // Sandbox tools are built per session so each chat's sandboxes stay isolated.
 // `defaultImage` comes from the session's project (falling back to alpine), so a
 // createSandbox call that doesn't name an image boots the project's image.
-function sandboxTools(sessionId: string, defaultImage = "alpine") {
+function sandboxTools(
+	sessionId: string,
+	defaultImage = "alpine",
+	env: Record<string, string> = {},
+) {
 	return {
 		createSandbox: tool({
 			description:
@@ -236,7 +242,7 @@ function sandboxTools(sessionId: string, defaultImage = "alpine") {
 					.describe("Run detached and return immediately with a PID and log path. Use this for long-running servers (vite preview, npm start, dev servers) — a foreground run would just block until the timeout kills the server you want kept alive. Inspect its output afterwards with `cat <log>`."),
 			}),
 			execute: ({ name = "default", command, args = [], timeoutMs, background }, { abortSignal }) =>
-				runCommand(sessionId, name, command, args, timeoutMs, abortSignal, background),
+				runCommand(sessionId, name, command, args, timeoutMs, abortSignal, background, env),
 		}),
 		writeFile: tool({
 			description:
@@ -431,9 +437,12 @@ export async function runAgent(
 	try {
 		// In "discuss" mode the agent is read-only: keep just the inspection tools
 		// so it can never write files or create/stop sandboxes.
+		const envRecord = Object.fromEntries(
+			(project?.env ?? []).map((e) => [e.key, e.value]),
+		);
 		const allTools = {
 			...tools,
-			...sandboxTools(sessionId, project?.image),
+			...sandboxTools(sessionId, project?.image, envRecord),
 			// Only offer addKnowledge when we know the project and have a sink to save to.
 			...(project?.id && saveKnowledge ? knowledgeTool(project.id, saveKnowledge) : {}),
 		};

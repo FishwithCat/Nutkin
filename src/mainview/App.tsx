@@ -219,6 +219,7 @@ function App() {
 					name: activeProject.name,
 					image: activeProject.image,
 					repos: activeProject.repos,
+					env: activeProject.env ?? [],
 				}
 			: undefined;
 

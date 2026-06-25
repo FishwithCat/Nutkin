@@ -58,10 +58,13 @@ browser. Each tool call shows up in a collapsible **工具调用** panel.
 A **项目 (project)** groups chat sessions around one or more code repositories and
 a default sandbox image. When no project is open you get a landing page of project
 cards (with search and **新建项目**); each card's gear button opens its settings
-(name, default image, bound repos, and a **删除项目** danger zone). A top-bar
-switcher jumps between projects. The app reopens to the last project you used. A
-session's bound repos and image are handed to the agent automatically — it can
-`git clone` them on demand and new sandboxes default to the project's image.
+(name, default image, bound repos, **环境变量** list, and a **删除项目** danger
+zone). A top-bar switcher jumps between projects. The app reopens to the last
+project you used. A session's bound repos and image are handed to the agent
+automatically — it can `git clone` them on demand and new sandboxes default to the
+project's image. Environment variables are injected into every `runCommand` the
+agent runs in the project's sandboxes (applied at exec time, so edits take effect
+immediately on existing containers).
 
 ### Sessions
 

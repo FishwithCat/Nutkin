@@ -228,5 +228,5 @@ export function buildProject(
 	image: string,
 ): Project {
 	const now = Date.now();
-	return { id, name, repos, image, createdAt: now, updatedAt: now };
+	return { id, name, repos, image, env: [], createdAt: now, updatedAt: now };
 }

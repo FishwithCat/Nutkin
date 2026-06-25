@@ -69,7 +69,7 @@ async function reattach(sessionId: string, name: string): Promise<Sandbox | null
 	} catch {
 		return null; // not found on disk
 	}
-	if (handle.status === "running") await handle.stop();
+	if (handle.status === "running") await stopBounded(handle);
 	return await Sandbox.start(vm);
 }
 
@@ -110,7 +110,13 @@ async function ensure(sessionId: string, name: string): Promise<Sandbox | null> 
 }
 
 // Backstop so a command that never exits can't hang the tool call forever.
-const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_TIMEOUT_MS = 120_000;
+
+// Native fs RPCs (read/write/mkdir) carry no client-side timeout: a stale relay
+// connection on a cached sandbox handle leaves the response frame to never
+// arrive, so the call hangs forever. A small file op finishes in well under a
+// second, so a generous bound here only ever fires on a wedged connection.
+const FS_RPC_TIMEOUT_MS = 15_000;
 
 export async function runCommand(
 	sessionId: string,
@@ -120,48 +126,54 @@ export async function runCommand(
 	timeoutMs = DEFAULT_TIMEOUT_MS,
 	signal?: AbortSignal,
 	background = false,
+	env: Record<string, string> = {},
 ) {
-	const sandbox = await ensure(sessionId, name);
-	if (!sandbox) {
-		return {
-			error: `No sandbox named "${name}" in this session. Create one with createSandbox first.`,
-		};
-	}
 	const script = [command, ...args].join(" ");
+	// Inject the project's env vars at exec time (not sandbox-create time), so they
+	// apply to reattached/existing sandboxes and take effect the moment the user
+	// edits them — no container rebuild needed. envs() with an empty map is a no-op.
+	const hasEnv = Object.keys(env).length > 0;
 
-	// Detached: launch inside the VM and return the PID + log path immediately, so
-	// a long-running server (vite preview, npm start) keeps running instead of
-	// blocking the tool until its timeout fires and kills the very process we want.
-	if (background) {
-		const log = `/tmp/nutkin-bg-${Date.now()}.log`;
-		const detached = `nohup sh -c ${shq(script)} > ${shq(log)} 2>&1 & echo $!`;
-		const exec = await sandbox.execWith("sh", (b) =>
-			b.args(["-c", detached]).timeout(10_000),
-		);
-		return {
-			background: true,
-			pid: exec.stdout().trim(),
-			log,
-			hint: `Started in background. Inspect output with: cat ${log}`,
-		};
-	}
-
-	// Run through the VM's shell so "uname -a", pipes, and && parse correctly —
-	// exec() treats the whole string as one executable name and hangs if it's
-	// not a real file. The timeout kills a runaway process instead of blocking.
-	const exec = sandbox.execWith("sh", (b) =>
-		b.args(["-c", script]).timeout(timeoutMs),
+	// The guest's own `.timeout()` bounds the *process*, but a wedged relay
+	// connection means its result frame never arrives and the host await hangs past
+	// it. withSandbox adds a host bound (guest timeout + grace) and, on a wedge,
+	// re-attaches and retries once — which also clears the stale handle so the next
+	// command isn't doomed too. ponytail: a retried non-idempotent command can run
+	// twice if its first response was lost; acceptable vs hanging forever.
+	const hostTimeoutMs = (background ? 10_000 : timeoutMs) + 15_000;
+	return withSandbox(
+		sessionId,
+		name,
+		signal,
+		async (sandbox) => {
+			// Detached: launch inside the VM and return the PID + log path immediately,
+			// so a long-running server (vite preview, npm start) keeps running instead of
+			// blocking the tool until its timeout fires and kills the process we want.
+			if (background) {
+				const log = `/tmp/nutkin-bg-${Date.now()}.log`;
+				const detached = `nohup sh -c ${shq(script)} > ${shq(log)} 2>&1 & echo $!`;
+				const exec = await sandbox.execWith("sh", (b) => {
+					const eb = b.args(["-c", detached]).timeout(10_000);
+					return hasEnv ? eb.envs(env) : eb;
+				});
+				return {
+					background: true,
+					pid: exec.stdout().trim(),
+					log,
+					hint: `Started in background. Inspect output with: cat ${log}`,
+				};
+			}
+			// Run through the VM's shell so "uname -a", pipes, and && parse correctly —
+			// exec() treats the whole string as one executable name and hangs if it's not
+			// a real file. The timeout kills a runaway process instead of blocking.
+			const out = await sandbox.execWith("sh", (b) => {
+				const eb = b.args(["-c", script]).timeout(timeoutMs);
+				return hasEnv ? eb.envs(env) : eb;
+			});
+			return { stdout: cap(out.stdout()), stderr: cap(out.stderr()), code: out.code };
+		},
+		hostTimeoutMs,
 	);
-	// Race against the abort so clicking 中止 returns at once instead of waiting
-	// for the command to finish. ponytail: the VM process keeps running until its
-	// own timeout — wire microsandbox cancellation in if that resource use bites.
-	if (signal) exec.catch(() => {}); // if abort wins the race, don't leak a rejection
-	const out = signal ? await Promise.race([exec, rejectOnAbort(signal)]) : await exec;
-	return {
-		stdout: cap(out.stdout()),
-		stderr: cap(out.stderr()),
-		code: out.code,
-	};
 }
 
 // Shell-quote a single argument by wrapping in single quotes and escaping any
@@ -175,28 +187,81 @@ function raceAbort<T>(op: Promise<T>, signal?: AbortSignal): Promise<T> {
 	return signal ? Promise.race([op, rejectOnAbort(signal)]) : op;
 }
 
+// Reject if `op` hasn't settled within `ms`, so a hung native fs RPC surfaces as
+// an error instead of blocking forever. Clears its own timer either way.
+// Thrown only by the host-side fuse below — i.e. the op neither resolved nor
+// rejected in time, which means the relay connection is wedged. Distinct from an
+// error the relay *delivered* (e.g. the guest's own ExecTimeoutError when a
+// command ran too long), so callers can re-attach on a wedge without re-running a
+// command that simply took longer than its budget.
+export class HostTimeoutError extends Error {}
+
+export function withTimeout<T>(op: Promise<T>, ms: number, label: string): Promise<T> {
+	op.catch(() => {}); // if the fuse wins, a later rejection of `op` must not go unhandled
+	let timer: ReturnType<typeof setTimeout>;
+	const fuse = new Promise<never>((_, reject) => {
+		timer = setTimeout(() => reject(new HostTimeoutError(`${label} timed out after ${ms}ms`)), ms);
+	});
+	return Promise.race([op, fuse]).finally(() => clearTimeout(timer));
+}
+
+// Bound a lifecycle stop() so a wedged relay connection can't hang the
+// stopSandbox tool, chat deletion, or app shutdown forever. Best-effort:
+// failures (incl. timeout) are swallowed — the rootfs is preserved regardless,
+// and the next reattach stops a still-running orphan anyway.
+function stopBounded(s: { stop: () => Promise<unknown> }): Promise<unknown> {
+	return withTimeout(s.stop(), FS_RPC_TIMEOUT_MS, "sandbox stop").catch(() => {});
+}
+
+// Run an op against the named sandbox, bounded by a timeout. The native relay
+// RPCs (fs read/write, exec) carry no host-side bound — a stale connection on a
+// cached handle leaves the response frame to never arrive, so the call hangs
+// forever. On any non-abort failure, drop the handle and retry once on a freshly
+// re-attached one (re-attach rebuilds the connection). The user's 中止 is never
+// retried.
+async function withSandbox<T>(
+	sessionId: string,
+	name: string,
+	signal: AbortSignal | undefined,
+	op: (sandbox: Sandbox) => Promise<T>,
+	timeoutMs = FS_RPC_TIMEOUT_MS,
+): Promise<T | { error: string }> {
+	const notFound = {
+		error: `No sandbox named "${name}" in this session. Create one with createSandbox first.`,
+	};
+	const run = (s: Sandbox) =>
+		raceAbort(withTimeout(op(s), timeoutMs, `sandbox "${name}" rpc`), signal);
+
+	const sandbox = await ensure(sessionId, name);
+	if (!sandbox) return notFound;
+	try {
+		return await run(sandbox);
+	} catch (e) {
+		// Re-attach + retry ONLY on a host fuse timeout — the one signal that the
+		// connection is wedged. An error the relay delivered (the guest's own
+		// ExecTimeoutError when a command outran its budget, an fs error, …) means
+		// the connection is fine; retrying would just re-run the work and double the
+		// wait. Propagate those. 中止 is never retried.
+		if (signal?.aborted || !(e instanceof HostTimeoutError)) throw e;
+		sessions.get(sessionId)?.delete(name); // stale handle; force a fresh re-attach
+		const fresh = await ensure(sessionId, name);
+		if (!fresh) return notFound;
+		return await run(fresh);
+	}
+}
+
 // Read a file's contents from a sandbox, or null if it doesn't exist. Native fs
 // RPC — no shell spawn, no base64 round trip.
-async function readFileRaw(
-	sandbox: Sandbox,
-	path: string,
-	signal?: AbortSignal,
-): Promise<string | null> {
-	const read = sandbox.fs().readToString(path).catch(() => null); // missing / unreadable
-	return raceAbort(read, signal);
+async function readFileRaw(sandbox: Sandbox, path: string): Promise<string | null> {
+	return sandbox.fs().readToString(path).catch(() => null); // missing / unreadable
 }
 
 // Write content to a file in a sandbox, creating parent dirs. Native fs RPC.
-async function writeFileRaw(
-	sandbox: Sandbox,
-	path: string,
-	content: string,
-	signal?: AbortSignal,
-): Promise<void> {
+async function writeFileRaw(sandbox: Sandbox, path: string, content: string): Promise<void> {
 	const fs = sandbox.fs();
 	const dir = path.replace(/\/[^/]*$/, ""); // dirname; "" for a bare/leading-slash name
-	if (dir && dir !== path) await raceAbort(fs.mkdir(dir).catch(() => {}), signal); // may exist
-	await raceAbort(fs.write(path, content), signal);
+	if (dir && dir !== path) await fs.mkdir(dir).catch(() => {}); // may exist
+	await fs.write(path, content);
 }
 
 // Create or overwrite a file with the given content. Returns the before/after
@@ -208,15 +273,11 @@ export async function writeFile(
 	content: string,
 	signal?: AbortSignal,
 ) {
-	const sandbox = await ensure(sessionId, name);
-	if (!sandbox) {
-		return {
-			error: `No sandbox named "${name}" in this session. Create one with createSandbox first.`,
-		};
-	}
-	const oldText = await readFileRaw(sandbox, path, signal);
-	await writeFileRaw(sandbox, path, content, signal);
-	return { path, created: oldText === null, ...capPair(oldText ?? "", content) };
+	return withSandbox(sessionId, name, signal, async (sandbox) => {
+		const oldText = await readFileRaw(sandbox, path);
+		await writeFileRaw(sandbox, path, content);
+		return { path, created: oldText === null, ...capPair(oldText ?? "", content) };
+	});
 }
 
 // Replace a substring within an existing file. Returns before/after text for the
@@ -230,24 +291,20 @@ export async function editFile(
 	replaceAll = false,
 	signal?: AbortSignal,
 ) {
-	const sandbox = await ensure(sessionId, name);
-	if (!sandbox) {
-		return {
-			error: `No sandbox named "${name}" in this session. Create one with createSandbox first.`,
-		};
-	}
-	const oldText = await readFileRaw(sandbox, path, signal);
-	if (oldText === null) {
-		return { error: `No such file "${path}" in sandbox "${name}".` };
-	}
-	if (!oldText.includes(oldString)) {
-		return { error: `oldString not found in ${path}.` };
-	}
-	const newText = replaceAll
-		? oldText.split(oldString).join(newString)
-		: oldText.replace(oldString, newString);
-	await writeFileRaw(sandbox, path, newText, signal);
-	return { path, ...capPair(oldText, newText) };
+	return withSandbox(sessionId, name, signal, async (sandbox) => {
+		const oldText = await readFileRaw(sandbox, path);
+		if (oldText === null) {
+			return { error: `No such file "${path}" in sandbox "${name}".` };
+		}
+		if (!oldText.includes(oldString)) {
+			return { error: `oldString not found in ${path}.` };
+		}
+		const newText = replaceAll
+			? oldText.split(oldString).join(newString)
+			: oldText.replace(oldString, newString);
+		await writeFileRaw(sandbox, path, newText);
+		return { path, ...capPair(oldText, newText) };
+	});
 }
 
 // --- Per-turn git snapshots ------------------------------------------------
@@ -270,10 +327,21 @@ export interface CommitInfo {
 // Identity flags inlined per-commit so we never touch the VM's global git config.
 const GIT_ID = "-c user.email=nutkin@local -c user.name=Nutkin";
 
-async function sh(sandbox: Sandbox, script: string): Promise<{ code: number; out: string }> {
-	const exec = await sandbox.execWith("sh", (b) =>
-		b.args(["-c", script]).timeout(DEFAULT_TIMEOUT_MS),
+// One-shot exec bounded host-side: the guest's own .timeout() bounds the
+// process, but a wedged relay connection means its result frame never arrives
+// and the await hangs past it. The grace margin on top only ever fires on a
+// wedge. Used by the snapshot/review machinery (runs post-turn and on review
+// open) — no abort/retry there, but a thrown timeout beats an infinite hang.
+function execBounded(sandbox: Sandbox, script: string, timeoutMs = DEFAULT_TIMEOUT_MS) {
+	return withTimeout(
+		sandbox.execWith("sh", (b) => b.args(["-c", script]).timeout(timeoutMs)),
+		timeoutMs + 15_000,
+		"sandbox exec",
 	);
+}
+
+async function sh(sandbox: Sandbox, script: string): Promise<{ code: number; out: string }> {
+	const exec = await execBounded(sandbox, script);
 	return { code: exec.code, out: exec.stdout().trim() };
 }
 
@@ -413,9 +481,7 @@ async function findRepos(sandbox: Sandbox): Promise<string[]> {
 // the shell. Empty string when the path doesn't exist at that ref (added/deleted).
 async function showAt(sandbox: Sandbox, root: string, ref: string, path: string): Promise<string> {
 	const r = shq(root);
-	const exec = await sandbox.execWith("sh", (b) =>
-		b.args(["-c", `git -C ${r} show ${shq(`${ref}:${path}`)} 2>/dev/null | base64`]).timeout(DEFAULT_TIMEOUT_MS),
-	);
+	const exec = await execBounded(sandbox, `git -C ${r} show ${shq(`${ref}:${path}`)} 2>/dev/null | base64`);
 	if (exec.code !== 0) return "";
 	return Buffer.from(exec.stdout(), "base64").toString("utf8");
 }
@@ -504,7 +570,7 @@ export async function stopSandbox(sessionId: string, name: string) {
 	const b = sessions.get(sessionId);
 	const cached = b?.get(name);
 	if (cached) {
-		await cached.stop();
+		await stopBounded(cached);
 		b?.delete(name);
 		images.delete(cached);
 		return { name, status: "stopped" as const };
@@ -512,7 +578,7 @@ export async function stopSandbox(sessionId: string, name: string) {
 	// Not cached but may exist on disk (e.g. after a restart).
 	try {
 		const handle = await Sandbox.get(vmName(sessionId, name));
-		if (handle.status === "running") await handle.stop();
+		if (handle.status === "running") await stopBounded(handle);
 		return { name, status: "stopped" as const };
 	} catch {
 		return { error: `No sandbox named "${name}" in this session.` };
@@ -602,7 +668,7 @@ export async function removeSandbox(sessionId: string, name: string): Promise<vo
 	}
 	try {
 		const handle = await Sandbox.get(vmName(sessionId, name));
-		if (handle.status === "running") await handle.stop(); // remove() needs it stopped
+		if (handle.status === "running") await stopBounded(handle); // remove() needs it stopped
 		await Sandbox.remove(handle.name);
 	} catch {
 		// already gone or wedged — nothing to do
@@ -624,7 +690,7 @@ export async function removeSessionSandboxes(sessionId: string): Promise<void> {
 			.filter((h) => h.name.startsWith(prefix))
 			.map(async (h) => {
 				try {
-					if (h.status === "running") await h.stop(); // remove() needs it stopped
+					if (h.status === "running") await stopBounded(h); // remove() needs it stopped
 					await Sandbox.remove(h.name);
 				} catch {
 					// best-effort: ignore a sandbox that's already gone or wedged
@@ -638,7 +704,7 @@ export async function removeSessionSandboxes(sessionId: string): Promise<void> {
 export async function stopAllSandboxes(): Promise<void> {
 	const all: Promise<unknown>[] = [];
 	for (const b of sessions.values()) {
-		for (const sandbox of b.values()) all.push(sandbox.stop().catch(() => {}));
+		for (const sandbox of b.values()) all.push(stopBounded(sandbox));
 	}
 	sessions.clear();
 	images.clear();
