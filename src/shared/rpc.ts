@@ -82,6 +82,23 @@ export interface SessionSandbox {
 	description: string;
 }
 
+/** A sandbox row for the global 沙箱管理 page: session/project, image, live metrics. */
+export interface SandboxInfo {
+	sessionId: string;
+	sessionTitle: string; // tasks-table title; falls back to sessionId when missing
+	projectName: string; // owning project's name; "" when unknown
+	name: string; // friendly name (sessionId__ prefix stripped)
+	status: string; // microsandbox status: running / stopped / crashed / draining
+	image: string; // boot image ref; "" when not recoverable from config
+	createdAt: number | null; // ms epoch
+	updatedAt: number | null; // ms epoch — last lifecycle change (e.g. paused-at)
+	// Live metrics — only present for running sandboxes (null otherwise).
+	cpuPercent: number | null;
+	memoryBytes: number | null;
+	memoryLimitBytes: number | null;
+	uptimeMs: number | null;
+}
+
 export type ReviewStatus = "added" | "modified" | "deleted";
 
 /**
@@ -214,6 +231,14 @@ export type AgentRPC = {
 			loadKnowledge: { params: { projectId: string }; response: Knowledge[] };
 			/** Load global app settings (model + API key). */
 			loadSettings: { params: undefined; response: AppSettings };
+			/** Every sandbox in the instance, for the global 沙箱管理 page. */
+			listAllSandboxes: { params: undefined; response: SandboxInfo[] };
+			/** Stop one sandbox; returns the refreshed full list. */
+			stopSandbox: { params: { sessionId: string; name: string }; response: SandboxInfo[] };
+			/** Delete one sandbox (rootfs too); returns the refreshed full list. */
+			removeSandbox: { params: { sessionId: string; name: string }; response: SandboxInfo[] };
+			/** The captured exec.log for one sandbox (newest lines). */
+			sandboxLogs: { params: { sessionId: string; name: string }; response: string };
 		};
 		messages: {
 			userMessage: {

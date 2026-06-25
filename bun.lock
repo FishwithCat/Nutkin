@@ -10,7 +10,7 @@
         "diff": "^9.0.0",
         "electrobun": "1.18.1",
         "lucide-react": "^1.21.0",
-        "microsandbox": "^0.5.7",
+        "microsandbox": "^0.5.10",
         "react": "^18.3.1",
         "react-dom": "^18.3.1",
         "react-markdown": "^10.1.0",
@@ -212,9 +212,11 @@
 
     "@standard-schema/spec": ["@standard-schema/spec@1.1.0", "https://registry.npmmirror.com/@standard-schema/spec/-/spec-1.1.0.tgz", {}, "sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w=="],
 
-    "@superradcompany/microsandbox-darwin-arm64": ["@superradcompany/microsandbox-darwin-arm64@0.5.7", "https://registry.npmmirror.com/@superradcompany/microsandbox-darwin-arm64/-/microsandbox-darwin-arm64-0.5.7.tgz", { "os": "darwin", "cpu": "arm64" }, "sha512-/ZnoBI0l9mYvPrwS8xPQ5L+c5B6U+aescZsiGXbjIvW9m/2rvMvi+tvl/Rj/pISHME8r2/2AQTqiFk4wvVxbcQ=="],
+    "@superradcompany/microsandbox-darwin-arm64": ["@superradcompany/microsandbox-darwin-arm64@0.5.10", "https://registry.npmmirror.com/@superradcompany/microsandbox-darwin-arm64/-/microsandbox-darwin-arm64-0.5.10.tgz", { "os": "darwin", "cpu": "arm64" }, "sha512-MGEV2SuLzSg3SiQJy2TXRE9SoWnmIUEhCAQno5y0hJ6dsMe7FbaRDFZtHpKiK4XExAstL5WhT1XF+JJWTEfSqg=="],
 
-    "@superradcompany/microsandbox-linux-arm64-gnu": ["@superradcompany/microsandbox-linux-arm64-gnu@0.5.7", "https://registry.npmmirror.com/@superradcompany/microsandbox-linux-arm64-gnu/-/microsandbox-linux-arm64-gnu-0.5.7.tgz", { "os": "linux", "cpu": "arm64" }, "sha512-OHn6eZ1eTdZxmz3cfgpQFo3wpGq1WkbyqnB5P+VQYRknl+HyBJTsGb22ayqiSpIrN07QGOGoHcOA2+43etk5fw=="],
+    "@superradcompany/microsandbox-linux-arm64-gnu": ["@superradcompany/microsandbox-linux-arm64-gnu@0.5.10", "https://registry.npmmirror.com/@superradcompany/microsandbox-linux-arm64-gnu/-/microsandbox-linux-arm64-gnu-0.5.10.tgz", { "os": "linux", "cpu": "arm64" }, "sha512-4FYoAURc1qbNxIbBFK9shMQ9MxklgPRGEsY7tQog8beqvc3U91W34aZyOu90OTRJm0TNsdoLIg3lxKP4LKIJYQ=="],
+
+    "@superradcompany/microsandbox-linux-x64-gnu": ["@superradcompany/microsandbox-linux-x64-gnu@0.5.10", "https://registry.npmmirror.com/@superradcompany/microsandbox-linux-x64-gnu/-/microsandbox-linux-x64-gnu-0.5.10.tgz", { "os": "linux", "cpu": "x64" }, "sha512-M9FjBAQ36dxhfs5S62uVxCTNAZzxjUgprNh41dIG6H6eF+tAEHYMY1lUEf/w1rkQw8SUsVRrtS+wfVyIM4z9fA=="],
 
     "@tootallnate/quickjs-emscripten": ["@tootallnate/quickjs-emscripten@0.23.0", "https://registry.npmmirror.com/@tootallnate/quickjs-emscripten/-/quickjs-emscripten-0.23.0.tgz", {}, "sha512-C5Mc6rdnsaJDjO3UpGW/CQTHtCKaYlScZTly4JIu97Jxo/odCiH0ITnDXSJPTOrEKk/ycSZ0AOgTmkDtkOsvIA=="],
 
@@ -570,7 +572,7 @@
 
     "micromatch": ["micromatch@4.0.8", "https://registry.npmmirror.com/micromatch/-/micromatch-4.0.8.tgz", { "dependencies": { "braces": "^3.0.3", "picomatch": "^2.3.1" } }, "sha512-PXwfBhYu0hBCPw8Dn0E+WDYb7af3dSLVWKi3HGv84IdF4TyFoC0ysxFd0Goxw7nSv4T/PzEJQxsYsEiFCKo2BA=="],
 
-    "microsandbox": ["microsandbox@0.5.7", "https://registry.npmmirror.com/microsandbox/-/microsandbox-0.5.7.tgz", { "optionalDependencies": { "@superradcompany/microsandbox-darwin-arm64": "0.5.7", "@superradcompany/microsandbox-linux-arm64-gnu": "0.5.7", "@superradcompany/microsandbox-linux-x64-gnu": "0.5.7" }, "bin": { "microsandbox": "bin/microsandbox.cjs", "msb": "bin/microsandbox.cjs" } }, "sha512-6M/J2HsBtQeKQN2zyglwozC/nFD5bQPsF9fuk5dJvBqE6z5oxmqR5TOWoLVq2d3f2iS88TioxwDH7+Sa/MVTCQ=="],
+    "microsandbox": ["microsandbox@0.5.10", "https://registry.npmmirror.com/microsandbox/-/microsandbox-0.5.10.tgz", { "optionalDependencies": { "@superradcompany/microsandbox-darwin-arm64": "0.5.10", "@superradcompany/microsandbox-linux-arm64-gnu": "0.5.10", "@superradcompany/microsandbox-linux-x64-gnu": "0.5.10" }, "bin": { "microsandbox": "bin/microsandbox.cjs", "msb": "bin/microsandbox.cjs" } }, "sha512-0NVFu8DohPq/hrG76CJ5x2x8wckNQq8KSN/VXxyVLns8WfDyBzfSSYXHUSV2evjdRB3dkA9FUJjnGujb2XRD1Q=="],
 
     "minimist": ["minimist@1.2.8", "https://registry.npmmirror.com/minimist/-/minimist-1.2.8.tgz", {}, "sha512-2yyAR8qBkN3YuheJanUpWC5U3bb5osDywNB8RzDVlDwDHbocAJveqqj1u8+SVD7jkWT4yvsHCpWqqWqAxb0zCA=="],
 

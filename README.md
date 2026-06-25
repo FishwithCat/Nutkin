@@ -76,8 +76,11 @@ earlier session are still there when the agent comes back. Just ask, e.g.
 *"create a sandbox and run `uname -a` in it"*. The first time an image is used it
 is pulled and cached, so the first boot is slower.
 
-> Sandboxes accumulate on disk (one per session/name). There's no automatic GC on
-> deleting a chat yet — remove stale ones with the `msb` CLI if they pile up.
+> Sandboxes accumulate on disk (one per session/name). Deleting a chat removes its
+> sandboxes, but orphans (e.g. from a crash) can pile up. Open **系统设置 → 沙箱管理**
+> for a global view — every sandbox grouped by session/project, with image, live
+> CPU/memory, and uptime — where you can **pause/resume**, view **logs**, or
+> **delete** (rootfs included) the stale ones.
 
 ### Diffs you can discuss
 

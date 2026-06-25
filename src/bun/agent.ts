@@ -251,8 +251,8 @@ function sandboxTools(sessionId: string, defaultImage = "alpine") {
 					.describe("Absolute or relative path of the file to write, e.g. '/app/main.py'."),
 				content: z.string().describe("The full new content of the file."),
 			}),
-			execute: ({ name = "default", path, content }) =>
-				writeFile(sessionId, name, path, content),
+			execute: ({ name = "default", path, content }, { abortSignal }) =>
+				writeFile(sessionId, name, path, content, abortSignal),
 		}),
 		editFile: tool({
 			description:
@@ -272,8 +272,10 @@ function sandboxTools(sessionId: string, defaultImage = "alpine") {
 					.optional()
 					.describe("Replace every occurrence instead of just the first. Defaults to false."),
 			}),
-			execute: ({ name = "default", path, oldString, newString, replaceAll = false }) =>
-				editFile(sessionId, name, path, oldString, newString, replaceAll),
+			execute: (
+				{ name = "default", path, oldString, newString, replaceAll = false },
+				{ abortSignal },
+			) => editFile(sessionId, name, path, oldString, newString, replaceAll, abortSignal),
 		}),
 		stopSandbox: tool({
 			description:

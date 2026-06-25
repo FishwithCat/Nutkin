@@ -75,14 +75,14 @@ function TaskCard({
 	return (
 		<div
 			onMouseLeave={() => setConfirming(false)}
-			className={`group relative rounded-xl transition-colors ${
-				selected ? "bg-clay-50 ring-1 ring-clay-200" : "hover:bg-stone-50"
+			className={`group relative rounded-md transition-colors ${
+				selected ? "bg-clay-50" : "hover:bg-stone-50"
 			}`}
 		>
 			<button
 				type="button"
 				onClick={onClick}
-				className="w-full flex items-center gap-2 text-left rounded-xl px-3 h-10 pr-9"
+				className="w-full flex items-center gap-2 text-left rounded-md px-3 h-10 pr-9"
 			>
 				<span
 					className={`shrink-0 w-1.5 h-1.5 rounded-full ${

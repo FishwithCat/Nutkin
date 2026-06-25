@@ -13,6 +13,7 @@ import type {
 	ProjectSummary,
 	ReviewEntry,
 	ReviewFileContent,
+	SandboxInfo,
 	SessionSandbox,
 	ToolCallInfo,
 	ToolResultInfo,
@@ -144,6 +145,26 @@ export function loadSettings(): Promise<AppSettings> {
 /** Save global app settings (model + API key). */
 export function saveSettings(settings: AppSettings) {
 	rpc.send.saveSettings(settings);
+}
+
+/** Every sandbox in the instance, for the 沙箱管理 page. */
+export function listAllSandboxes(): Promise<SandboxInfo[]> {
+	return rpc.request.listAllSandboxes();
+}
+
+/** Stop one sandbox; resolves to the refreshed full list. */
+export function stopSandbox(sessionId: string, name: string): Promise<SandboxInfo[]> {
+	return rpc.request.stopSandbox({ sessionId, name });
+}
+
+/** Delete one sandbox (rootfs too); resolves to the refreshed full list. */
+export function removeSandbox(sessionId: string, name: string): Promise<SandboxInfo[]> {
+	return rpc.request.removeSandbox({ sessionId, name });
+}
+
+/** The captured exec.log for one sandbox (newest lines). */
+export function sandboxLogs(sessionId: string, name: string): Promise<string> {
+	return rpc.request.sandboxLogs({ sessionId, name });
 }
 
 /** Upsert a knowledge entry. */

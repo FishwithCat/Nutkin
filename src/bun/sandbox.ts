@@ -6,8 +6,8 @@
 // written into them — survive an app restart. The in-memory map below only
 // caches handles to sandboxes we've started this run; anything not cached is
 // re-attached lazily from disk by `reattach()`.
-import { Sandbox } from "microsandbox";
-import type { ReviewEntry, ReviewFileContent, ReviewStatus } from "../shared/rpc";
+import { Sandbox, allSandboxMetrics } from "microsandbox";
+import type { ReviewEntry, ReviewFileContent, ReviewStatus, SandboxInfo } from "../shared/rpc";
 
 // sessionId -> friendly name -> running sandbox (this run only; rebuilt lazily)
 const sessions = new Map<string, Map<string, Sandbox>>();
@@ -168,27 +168,35 @@ export async function runCommand(
 // embedded single quote. Safe for arbitrary file paths.
 const shq = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
 
-// Read a file's contents from a sandbox, or null if it doesn't exist. Uses
-// base64 on the wire so binary-ish / multibyte content survives the shell.
-async function readFileRaw(sandbox: Sandbox, path: string): Promise<string | null> {
-	const exec = await sandbox.execWith("sh", (b) =>
-		b.args(["-c", `base64 ${shq(path)}`]).timeout(DEFAULT_TIMEOUT_MS),
-	);
-	if (exec.code !== 0) return null; // missing file / not readable
-	return Buffer.from(exec.stdout(), "base64").toString("utf8");
+// Race a sandbox op against the abort signal so 中止 returns at once instead of
+// waiting for the (uncancellable) RPC to finish. ponytail: the RPC keeps running
+// host-side until it resolves; only the await returns early.
+function raceAbort<T>(op: Promise<T>, signal?: AbortSignal): Promise<T> {
+	return signal ? Promise.race([op, rejectOnAbort(signal)]) : op;
 }
 
-// Write content to a file in a sandbox, creating parent dirs. Pipes the bytes
-// in as base64 so arbitrary content (quotes, newlines, unicode) lands intact.
-async function writeFileRaw(sandbox: Sandbox, path: string, content: string): Promise<void> {
-	const b64 = Buffer.from(content, "utf8").toString("base64");
-	const script = `mkdir -p "$(dirname ${shq(path)})" && printf %s ${shq(b64)} | base64 -d > ${shq(path)}`;
-	const exec = await sandbox.execWith("sh", (b) =>
-		b.args(["-c", script]).timeout(DEFAULT_TIMEOUT_MS),
-	);
-	if (exec.code !== 0) {
-		throw new Error(exec.stderr() || `failed to write ${path} (exit ${exec.code})`);
-	}
+// Read a file's contents from a sandbox, or null if it doesn't exist. Native fs
+// RPC — no shell spawn, no base64 round trip.
+async function readFileRaw(
+	sandbox: Sandbox,
+	path: string,
+	signal?: AbortSignal,
+): Promise<string | null> {
+	const read = sandbox.fs().readToString(path).catch(() => null); // missing / unreadable
+	return raceAbort(read, signal);
+}
+
+// Write content to a file in a sandbox, creating parent dirs. Native fs RPC.
+async function writeFileRaw(
+	sandbox: Sandbox,
+	path: string,
+	content: string,
+	signal?: AbortSignal,
+): Promise<void> {
+	const fs = sandbox.fs();
+	const dir = path.replace(/\/[^/]*$/, ""); // dirname; "" for a bare/leading-slash name
+	if (dir && dir !== path) await raceAbort(fs.mkdir(dir).catch(() => {}), signal); // may exist
+	await raceAbort(fs.write(path, content), signal);
 }
 
 // Create or overwrite a file with the given content. Returns the before/after
@@ -198,6 +206,7 @@ export async function writeFile(
 	name: string,
 	path: string,
 	content: string,
+	signal?: AbortSignal,
 ) {
 	const sandbox = await ensure(sessionId, name);
 	if (!sandbox) {
@@ -205,8 +214,8 @@ export async function writeFile(
 			error: `No sandbox named "${name}" in this session. Create one with createSandbox first.`,
 		};
 	}
-	const oldText = await readFileRaw(sandbox, path);
-	await writeFileRaw(sandbox, path, content);
+	const oldText = await readFileRaw(sandbox, path, signal);
+	await writeFileRaw(sandbox, path, content, signal);
 	return { path, created: oldText === null, ...capPair(oldText ?? "", content) };
 }
 
@@ -219,6 +228,7 @@ export async function editFile(
 	oldString: string,
 	newString: string,
 	replaceAll = false,
+	signal?: AbortSignal,
 ) {
 	const sandbox = await ensure(sessionId, name);
 	if (!sandbox) {
@@ -226,7 +236,7 @@ export async function editFile(
 			error: `No sandbox named "${name}" in this session. Create one with createSandbox first.`,
 		};
 	}
-	const oldText = await readFileRaw(sandbox, path);
+	const oldText = await readFileRaw(sandbox, path, signal);
 	if (oldText === null) {
 		return { error: `No such file "${path}" in sandbox "${name}".` };
 	}
@@ -236,7 +246,7 @@ export async function editFile(
 	const newText = replaceAll
 		? oldText.split(oldString).join(newString)
 		: oldText.replace(oldString, newString);
-	await writeFileRaw(sandbox, path, newText);
+	await writeFileRaw(sandbox, path, newText, signal);
 	return { path, ...capPair(oldText, newText) };
 }
 
@@ -519,6 +529,84 @@ export async function listSandboxes(sessionId: string) {
 			.filter((h) => h.name.startsWith(prefix))
 			.map((h) => ({ name: h.name.slice(prefix.length), status: h.status })),
 	};
+}
+
+// Pull the image ref out of a sandbox's config JSON. Shape is
+// {"image":{"Oci":{"reference":"python",...}}}. "" when not found.
+function imageFromConfig(configJson: string): string {
+	try {
+		const cfg = JSON.parse(configJson) as { image?: { Oci?: { reference?: string } } };
+		return cfg.image?.Oci?.reference ?? "";
+	} catch {
+		// malformed/absent config — fall through to ""
+		return "";
+	}
+}
+
+// Every sandbox in the whole instance, split back into {sessionId, name} and
+// enriched with image, timestamps, and live metrics. The global 沙箱管理 page
+// uses this to monitor and clean up sandboxes across all sessions. Friendly
+// names can contain "__", so split on the FIRST separator only. Returns the raw
+// fields; index.ts adds sessionTitle/projectName from the DB.
+type RawSandbox = Omit<SandboxInfo, "sessionTitle" | "projectName">;
+export async function listAllSandboxes(): Promise<RawSandbox[]> {
+	// list() rejects when the microsandbox server isn't up (e.g. nothing created
+	// yet) — treat that as "no sandboxes" so the admin page doesn't hang.
+	// allSandboxMetrics() covers only running sandboxes (stopped ones have no
+	// live stats), keyed by full VM name; one call for all of them.
+	const [all, metrics] = await Promise.all([
+		Sandbox.list().catch(() => []),
+		allSandboxMetrics().catch(() => ({} as Awaited<ReturnType<typeof allSandboxMetrics>>)),
+	]);
+	return all.map((h) => {
+		const i = h.name.indexOf("__");
+		const sessionId = i === -1 ? "" : h.name.slice(0, i);
+		const name = i === -1 ? h.name : h.name.slice(i + 2);
+		const m = metrics[h.name];
+		return {
+			sessionId,
+			name,
+			status: h.status,
+			image: imageFromConfig(h.configJson),
+			createdAt: h.createdAt ? h.createdAt.getTime() : null,
+			updatedAt: h.updatedAt ? h.updatedAt.getTime() : null,
+			cpuPercent: m ? m.cpuPercent : null,
+			memoryBytes: m ? m.memoryBytes : null,
+			memoryLimitBytes: m ? m.memoryLimitBytes : null,
+			uptimeMs: m ? m.uptimeMs : null,
+		};
+	});
+}
+
+// The captured output log for one sandbox (exec.log), newest 500 lines. Readable
+// without starting the sandbox, so it works for stopped ones too.
+export async function sandboxLogs(sessionId: string, name: string): Promise<string> {
+	try {
+		const handle = await Sandbox.get(vmName(sessionId, name));
+		const entries = await handle.logs({ tail: 500 });
+		return entries.map((e) => e.text()).join("");
+	} catch {
+		return "";
+	}
+}
+
+// Permanently delete one sandbox (its rootfs too). The single-sandbox version of
+// removeSessionSandboxes, for the 沙箱管理 page. Best-effort: a sandbox already
+// gone or wedged is ignored.
+export async function removeSandbox(sessionId: string, name: string): Promise<void> {
+	const b = sessions.get(sessionId);
+	const cached = b?.get(name);
+	if (cached) {
+		images.delete(cached);
+		b?.delete(name);
+	}
+	try {
+		const handle = await Sandbox.get(vmName(sessionId, name));
+		if (handle.status === "running") await handle.stop(); // remove() needs it stopped
+		await Sandbox.remove(handle.name);
+	} catch {
+		// already gone or wedged — nothing to do
+	}
 }
 
 // Permanently delete every sandbox belonging to a session (its rootfs too).

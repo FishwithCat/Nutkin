@@ -12,10 +12,14 @@ import type { ModelMessage } from "ai";
 import { runAgent } from "./agent";
 import {
 	commitChanges,
+	listAllSandboxes,
+	removeSandbox,
 	removeSessionSandboxes,
 	reviewFile,
 	reviewList,
+	sandboxLogs,
 	stopAllSandboxes,
+	stopSandbox,
 	type ChangedFile,
 } from "./sandbox";
 import type {
@@ -25,6 +29,7 @@ import type {
 	PersistedTask,
 	Project,
 	ProjectSummary,
+	SandboxInfo,
 } from "../shared/rpc";
 
 // Persisted conversations live in the per-user app data dir.
@@ -223,6 +228,29 @@ const readSettings = (): AppSettings => ({
 	deepseekModel: getState.get({ $key: "deepseekModel" })?.value ?? "",
 });
 
+// Every sandbox in the instance, each row tagged with its session's title and
+// owning project (for the 沙箱管理 page). Shared by the list/stop/start/remove
+// handlers so they all return the same shape after an action.
+const selectTaskMeta = db.query<
+	{ id: string; title: string; project: string | null },
+	[]
+>(
+	`SELECT t.id, t.title, p.name AS project
+	 FROM tasks t LEFT JOIN projects p ON p.id = t.project_id`,
+);
+async function buildSandboxList(): Promise<SandboxInfo[]> {
+	const meta = new Map(selectTaskMeta.all().map((r) => [r.id, r]));
+	const all = await listAllSandboxes();
+	return all.map((s) => {
+		const m = meta.get(s.sessionId);
+		return {
+			...s,
+			sessionTitle: m?.title ?? s.sessionId,
+			projectName: m?.project ?? "",
+		};
+	});
+}
+
 // In-flight agent turns, keyed by assistantId, so the webview can abort them.
 const running = new Map<string, AbortController>();
 
@@ -280,6 +308,16 @@ const rpc = BrowserView.defineRPC<AgentRPC>({
 			loadKnowledge: ({ projectId }): Knowledge[] =>
 				selectKnowledge.all({ $project_id: projectId }).map(rowToKnowledge),
 			loadSettings: (): AppSettings => readSettings(),
+			listAllSandboxes: () => buildSandboxList(),
+			stopSandbox: async ({ sessionId, name }) => {
+				await stopSandbox(sessionId, name);
+				return buildSandboxList();
+			},
+			removeSandbox: async ({ sessionId, name }) => {
+				await removeSandbox(sessionId, name);
+				return buildSandboxList();
+			},
+			sandboxLogs: ({ sessionId, name }) => sandboxLogs(sessionId, name),
 		},
 		messages: {
 			saveProject: (project: Project) => {
