@@ -27,7 +27,10 @@ const cap = (s: string) =>
 // the first 10k → diff shows nothing). So drop the shared head/tail lines first,
 // keeping a little context, so whatever budget is left lands on the actual diff.
 // ponytail: line numbers restart at 1 in truncated files; fine for lockfile noise.
-export function capPair(oldText: string, newText: string): ReviewFileContent {
+export function capPair(
+	oldText: string,
+	newText: string,
+): Omit<ReviewFileContent, "commitHash"> {
 	if (oldText.length <= MAX_OUTPUT && newText.length <= MAX_OUTPUT) {
 		return { oldText, newText };
 	}
@@ -289,6 +292,17 @@ async function repoRoot(sandbox: Sandbox, path: string): Promise<string> {
 async function commitRepo(sandbox: Sandbox, root: string): Promise<string | null> {
 	if (!root) return null;
 	const r = shq(root);
+	// Anchor a session-start baseline on the first commit, before we stage anything,
+	// so Review All can diff against the pre-Nutkin state even with no upstream. Set
+	// once (later turns see the ref and skip): existing HEAD for a cloned/non-empty
+	// repo, else the empty tree for a freshly-`init`'d dir so every file reads as
+	// added. Always planting it also marks the repo as one Nutkin tracks, which is
+	// what reviewList uses to include no-remote repos.
+	const hasBase = await sh(sandbox, `git -C ${r} rev-parse --verify -q ${BASE_REF}`);
+	if (!hasBase.out) {
+		const head = await sh(sandbox, `git -C ${r} rev-parse --verify -q HEAD`);
+		await sh(sandbox, `git -C ${r} update-ref ${BASE_REF} ${head.out || EMPTY_TREE}`);
+	}
 	await sh(sandbox, `git -C ${r} add -A`);
 	await sh(sandbox, `git -C ${r} ${GIT_ID} commit -q --allow-empty -m "nutkin turn"`);
 	const head = await sh(sandbox, `git -C ${r} rev-parse HEAD 2>/dev/null`);
@@ -338,6 +352,10 @@ export async function commitChanges(
 // git's empty-tree object: diffing against it makes every tracked file read as
 // added, the right base for a repo with no upstream to compare against.
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
+// Ref marking a repo's session-start state — the diff base for repos with no
+// upstream, and the signal that this is a repo Nutkin is actually tracking.
+const BASE_REF = "refs/nutkin/base";
 
 // Map a `git diff --name-status` letter to our status. Renames/copies (R/C) are
 // reported as their destination path, so treat them as a modification.
@@ -393,10 +411,13 @@ async function showAt(sandbox: Sandbox, root: string, ref: string, path: string)
 }
 
 // The ref a repo is reviewed against: its upstream if the branch has one, else
-// git's empty tree (so every file reads as added).
+// our session-start baseline, else git's empty tree (so every file reads as added).
 async function resolveBase(sandbox: Sandbox, root: string): Promise<string> {
 	const r = shq(root);
-	const res = await sh(sandbox, `git -C ${r} rev-parse --verify -q '@{u}' || echo ${EMPTY_TREE}`);
+	const res = await sh(
+		sandbox,
+		`git -C ${r} rev-parse --verify -q '@{u}' || git -C ${r} rev-parse --verify -q ${BASE_REF} || echo ${EMPTY_TREE}`,
+	);
 	return res.out.trim() || EMPTY_TREE;
 }
 
@@ -417,12 +438,16 @@ export async function reviewList(
 		const sandbox = await ensure(sessionId, name);
 		if (!sandbox) continue;
 		for (const root of await findRepos(sandbox)) {
-			// No remote → nothing to push to. Skips stray local `git init`s the agent
-			// leaves in system dirs (e.g. editing /etc), keeping only real push targets.
-			const remotes = await sh(sandbox, `git -C ${shq(root)} remote`);
-			if (!remotes.out.trim()) continue;
+			// Include a repo if it has a remote (a real push target) OR our baseline
+			// ref (a repo Nutkin committed to — works for non-git/no-remote projects).
+			// Stray `git init`s the agent leaves in system dirs (e.g. editing /etc) have
+			// neither unless we committed there, so they stay filtered out.
+			const r = shq(root);
+			const remotes = await sh(sandbox, `git -C ${r} remote`);
+			const hasBase = await sh(sandbox, `git -C ${r} rev-parse --verify -q ${BASE_REF}`);
+			if (!remotes.out.trim() && !hasBase.out.trim()) continue;
 			const base = await resolveBase(sandbox, root);
-			const names2 = await sh(sandbox, `git -C ${shq(root)} diff --name-status ${base} HEAD`);
+			const names2 = await sh(sandbox, `git -C ${r} diff --name-status ${base} HEAD`);
 			for (const { status, path } of parseNameStatus(names2.out)) {
 				out.push({ sandboxName: name, repoRoot: root, path, status });
 			}
@@ -441,11 +466,13 @@ export async function reviewFile(
 	path: string,
 ): Promise<ReviewFileContent> {
 	const sandbox = await ensure(sessionId, sandboxName);
-	if (!sandbox) return { oldText: "", newText: "" };
+	if (!sandbox) return { oldText: "", newText: "", commitHash: "" };
 	const base = await resolveBase(sandbox, repoRoot);
 	const oldText = await showAt(sandbox, repoRoot, base, path);
 	const newText = await showAt(sandbox, repoRoot, "HEAD", path);
-	return capPair(oldText, newText);
+	// HEAD's hash lets a review diff anchor a discussion (`newText` is read from it).
+	const head = await sh(sandbox, `git -C ${shq(repoRoot)} rev-parse HEAD`);
+	return { ...capPair(oldText, newText), commitHash: head.out.trim() };
 }
 
 // A promise that rejects when the signal aborts, so it can lose a Promise.race

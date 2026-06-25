@@ -478,20 +478,37 @@ function App() {
 					{activeTask && !reviewOpen && (
 						<TaskHeader
 							task={activeTask}
-							canReview={
-							activeTask.sandboxes.length > 0 &&
-							(activeProject?.repos.length ?? 0) > 0
-						}
+							canReview={activeTask.sandboxes.length > 0}
 							onReview={() => setReviewOpen(true)}
 						/>
 					)}
 
 					{reviewOpen && activeTask ? (
+						// Discussion renders inside the review view (as children, in the body
+						// row beside the diff) so the header spans the full width, and it
+						// unmounts with the panel — closing review also drops the anchor.
 						<ReviewPanel
 							sessionId={activeTask.id}
 							sandboxes={activeTask.sandboxes.map((s) => s.name)}
-							onClose={() => setReviewOpen(false)}
-						/>
+							threads={threads}
+							onOpenThread={onOpenThread}
+							onCreateThread={onCreateThread}
+							openAnchor={openAnchor}
+							onClose={() => {
+								setReviewOpen(false);
+								setOpenAnchor(null);
+							}}
+						>
+							{openAnchor && (
+								<DiscussionPanel
+									anchor={openAnchor}
+									thread={openThread}
+									busy={openThread.some((m) => m.pending)}
+									onSend={(text) => sendMessage(text, openAnchor)}
+									onClose={() => setOpenAnchor(null)}
+								/>
+							)}
+						</ReviewPanel>
 					) : activeTask ? (
 						<>
 							<div
@@ -535,7 +552,7 @@ function App() {
 					)}
 				</main>
 
-				{openAnchor && activeTask && (
+				{openAnchor && activeTask && !reviewOpen && (
 					<DiscussionPanel
 						anchor={openAnchor}
 						thread={openThread}

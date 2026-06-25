@@ -92,6 +92,10 @@ export interface ReviewFileContent {
 	oldText: string;
 	newText: string;
 	truncated?: boolean;
+	// HEAD's commit hash — the immutable snapshot `newText` is read from, so a
+	// review diff can anchor a discussion just like a per-turn diff card. Empty
+	// when the repo has no HEAD (then the file stays read-only).
+	commitHash: string;
 }
 
 /** A tool invocation surfaced to the UI so the agent's steps are visible. */

@@ -217,16 +217,30 @@ with diffs; the tool itself never edits, it only hands off the request.
 The session header has a **准备推送 / Ready to Push** button (disabled while the
 agent is running or before any sandbox exists). It opens a full-screen review of
 **every change the session made, across all its sandboxes** — a two-column panel:
-a file list on the left, the selected file's inline diff on the right (reusing the
-read-only `DiffView`). It's review-only; it does **not** push.
+a file list on the left, the selected file's inline diff on the right (reusing
+`DiffView`). It's review-only; it does **not** push.
+
+The review diffs support the **same multi-line discussion** as the main chat: drag
+across a file's line numbers to ask the agent about that range. This works because
+the diff is `base..HEAD` and **HEAD is a real commit** — `reviewFile` returns its
+hash, so the selection anchors to it exactly like a per-turn diff card (synthetic
+`review:<file>` toolCallId for grouping; threads persist with the session). A repo
+with no HEAD just stays read-only.
 
 The backend (`src/bun/sandbox.ts`) **discovers the repos itself** rather than
 trusting per-turn commit records — those only cover files an edit tool touched,
 so a repo cloned/built purely via `runCommand` would be missed. It scans each
 sandbox for `.git` dirs (bounded `find` from common roots), then for each repo
-diffs its current `HEAD` against its **upstream** (`@{u}`), falling back to git's
-empty tree when there is no upstream so a locally-`init`'d repo shows every file
-as added.
+diffs its current `HEAD` against a base ref. The base is the branch's **upstream**
+(`@{u}`) if it has one, else our **session-start baseline** (`refs/nutkin/base`),
+else git's empty tree (whole project reads as added).
+
+The baseline ref is anchored on a repo's first auto-commit (before staging),
+capturing its pre-Nutkin `HEAD`. This is what makes review work for **non-git /
+no-remote projects**: a directory the agent creates or a locally-`init`'d repo
+is reviewed against where it started, with no remote required. A repo is included
+in review if it has a remote **or** our baseline ref, which also keeps stray
+`git init`s in system dirs (e.g. editing `/etc`) out unless Nutkin committed there.
 
 Content loads lazily so the panel opens fast regardless of how many files
 changed, via two RPC requests: `reviewList` returns just the changed-file list
