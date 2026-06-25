@@ -29,10 +29,32 @@ export interface ProjectContext {
 // provider. Override the model with DEEPSEEK_MODEL (e.g. "deepseek-reasoner").
 const MODEL = process.env.DEEPSEEK_MODEL ?? "deepseek-v4-flash";
 
+const WEB_MAX = 20_000;
+const cap = (s: string) => (s.length > WEB_MAX ? `${s.slice(0, WEB_MAX)}\n…[truncated]` : s);
+
+// ponytail: naive tag-strip — drops <script>/<style>, removes tags, collapses
+// whitespace. Good enough for reading docs; swap in a real HTML parser if pages
+// need structure (tables, code blocks) preserved.
+export function htmlToText(html: string): string {
+	return html
+		.replace(/<script[\s\S]*?<\/script>/gi, "")
+		.replace(/<style[\s\S]*?<\/style>/gi, "")
+		.replace(/<[^>]+>/g, " ")
+		.replace(/&nbsp;/g, " ")
+		.replace(/&amp;/g, "&")
+		.replace(/&lt;/g, "<")
+		.replace(/&gt;/g, ">")
+		.replace(/&quot;/g, '"')
+		.replace(/&#39;/g, "'")
+		.replace(/[ \t]+/g, " ")
+		.replace(/\n\s*\n\s*\n+/g, "\n\n")
+		.trim();
+}
+
 const SYSTEM_PROMPT = [
 	"You are a helpful AI assistant powered by DeepSeek with access to tools:",
-	"getCurrentTime, and per-session Linux sandboxes (createSandbox, runCommand,",
-	"writeFile, editFile, stopSandbox, listSandboxes). Each tool's own description",
+	"getCurrentTime, webFetch (read a URL as plain text), and per-session Linux sandboxes",
+	"(createSandbox, runCommand, writeFile, editFile, stopSandbox, listSandboxes). Each tool's own description",
 	"says how to use it. To create or overwrite a file use writeFile, and to modify",
 	"part of a file use editFile — do NOT change files with shell redirection like",
 	"'echo > file' or 'sed -i' via runCommand, so every file change is shown to the",
@@ -55,8 +77,8 @@ const SYSTEM_PROMPT = [
 const DISCUSS_SYSTEM_PROMPT = [
 	"You are a helpful AI assistant powered by DeepSeek, discussing a specific code",
 	"change with the user. This is a discussion turn, so you have READ-ONLY access:",
-	"getCurrentTime, and per-session Linux sandboxes for inspection only (runCommand,",
-	"listSandboxes). You CANNOT create, modify, or delete files, and you CANNOT create",
+	"getCurrentTime, webFetch (read a URL as plain text), and per-session Linux sandboxes for",
+	"inspection only (runCommand, listSandboxes). You CANNOT create, modify, or delete files, and you CANNOT create",
 	"or stop sandboxes — those tools are intentionally unavailable here. Use runCommand",
 	"to look at code (e.g. 'git show <hash>:<file>', 'git diff', 'cat', 'grep') and",
 	"answer the user's questions about the change. When the user wants the discussed",
@@ -77,7 +99,7 @@ export type AgentMode = "build" | "discuss";
 
 // Tools available in "discuss" mode: read-only inspection only. Everything else
 // (writeFile, editFile, createSandbox, stopSandbox) is withheld.
-const DISCUSS_TOOLS = ["getCurrentTime", "runCommand", "listSandboxes", "refactor"] as const;
+const DISCUSS_TOOLS = ["getCurrentTime", "runCommand", "listSandboxes", "refactor", "webFetch"] as const;
 
 // The agent's tools. Each has a zod input schema and an `execute` function.
 export const tools = {
@@ -116,6 +138,30 @@ export const tools = {
 				),
 		}),
 		execute: async ({ instruction }) => ({ queued: true, instruction }),
+	}),
+	webFetch: tool({
+		description:
+			"Fetch a URL over HTTP(S) and return its content as plain text (HTML tags stripped). " +
+			"Use this to read documentation, API responses, or web pages. Returns { url, status, " +
+			"contentType, text }. Long pages are truncated. Only http/https URLs are allowed.",
+		inputSchema: z.object({
+			url: z.string().url().describe("The absolute http(s) URL to fetch."),
+		}),
+		execute: async ({ url }) => {
+			const u = new URL(url);
+			if (u.protocol !== "http:" && u.protocol !== "https:") {
+				return { error: `Unsupported protocol: ${u.protocol}` };
+			}
+			const res = await fetch(url, {
+				redirect: "follow",
+				headers: { "user-agent": "Nutkin-Agent" },
+				signal: AbortSignal.timeout(15_000),
+			});
+			const contentType = res.headers.get("content-type") ?? "";
+			const raw = await res.text();
+			const text = /html/i.test(contentType) ? htmlToText(raw) : raw;
+			return { url: res.url, status: res.status, contentType, text: cap(text) };
+		},
 	}),
 };
 

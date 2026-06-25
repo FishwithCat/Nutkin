@@ -136,6 +136,7 @@ Tools (in `src/bun/agent.ts`, backed by `src/bun/sandbox.ts`):
 - `editFile(name?, path, oldString, newString, replaceAll?)` — replace a snippet within an existing file. Also returns before/after text for the diff.
 - `stopSandbox(name?)` — pause a sandbox (files preserved; resumes on next command).
 - `listSandboxes()` — this session's sandboxes (including persisted ones) with status.
+- `webFetch(url)` — fetch an http(s) URL and return its content as plain text (HTML stripped, long pages truncated). Read-only, so it's also available in discuss mode. Plus `getCurrentTime(timeZone?)`.
 
 The agent is steered to change files with `writeFile`/`editFile` rather than shell
 redirection (`echo >`, `sed -i`), because those tools capture the file's content
