@@ -11,11 +11,9 @@ projects, and knowledge all persist locally.
 ## Setup
 
 1. Get a DeepSeek API key at <https://platform.deepseek.com/api_keys>.
-2. Copy `.env.example` to `.env` and set `DEEPSEEK_API_KEY`. Bun auto-loads `.env`.
-
-```bash
-cp .env.example .env   # then edit .env and paste your key
-```
+2. Launch the app, open **系统设置** (gear icon, top-right) → **模型与 API Key**,
+   and paste your key (and optionally a model). The config is global — all
+   projects share it — and the agent won't run until the key is set.
 
 ## Run
 

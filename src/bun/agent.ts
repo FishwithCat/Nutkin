@@ -5,7 +5,7 @@
 // observe their results, and keep going until it produces a final answer
 // (or hits the step budget). Everything runs in the Bun process so the
 // DEEPSEEK_API_KEY never reaches the renderer.
-import { deepseek } from "@ai-sdk/deepseek";
+import { createDeepSeek } from "@ai-sdk/deepseek";
 import { stepCountIs, streamText, tool, type ModelMessage } from "ai";
 import { z } from "zod";
 import {
@@ -16,7 +16,13 @@ import {
 	stopSandbox,
 	writeFile,
 } from "./sandbox";
-import type { Knowledge, KnowledgeType, ProjectRepo, SessionSandbox } from "../shared/rpc";
+import type {
+	AppSettings,
+	Knowledge,
+	KnowledgeType,
+	ProjectRepo,
+	SessionSandbox,
+} from "../shared/rpc";
 
 /** Project context for a session: id + default sandbox image + bound repositories. */
 export interface ProjectContext {
@@ -26,9 +32,9 @@ export interface ProjectContext {
 	repos: ProjectRepo[];
 }
 
-// Bun auto-loads .env, so DEEPSEEK_API_KEY is picked up automatically by the
-// provider. Override the model with DEEPSEEK_MODEL (e.g. "deepseek-reasoner").
-const MODEL = process.env.DEEPSEEK_MODEL ?? "deepseek-v4-flash";
+// DeepSeek config lives in global 系统设置 (app_state), passed in per turn. The
+// model is optional and falls back to this default.
+const DEFAULT_MODEL = "deepseek-v4-pro";
 
 const WEB_MAX = 20_000;
 const cap = (s: string) => (s.length > WEB_MAX ? `${s.slice(0, WEB_MAX)}\n…[truncated]` : s);
@@ -409,14 +415,16 @@ export async function runAgent(
 	sandboxes: SessionSandbox[] = [],
 	saveKnowledge?: (k: Knowledge) => void,
 	knowledge: Knowledge[] = [],
+	settings: AppSettings = { deepseekApiKey: "", deepseekModel: "" },
 ): Promise<void> {
-	if (!process.env.DEEPSEEK_API_KEY) {
-		events.onError(
-			"Missing DEEPSEEK_API_KEY. Create a .env file with DEEPSEEK_API_KEY=... (see .env.example).",
-		);
+	const apiKey = settings.deepseekApiKey.trim();
+	if (!apiKey) {
+		events.onError("缺少 LLM API Key, 请在系统设置中配置。");
 		events.onDone();
 		return;
 	}
+	const deepseek = createDeepSeek({ apiKey });
+	const modelId = settings.deepseekModel.trim() || DEFAULT_MODEL;
 
 	try {
 		// In "discuss" mode the agent is read-only: keep just the inspection tools
@@ -436,7 +444,7 @@ export async function runAgent(
 					)
 				: allTools;
 		const result = streamText({
-			model: deepseek(MODEL),
+			model: deepseek(modelId),
 			system: buildSystemPrompt(project, mode, sandboxes, knowledge),
 			messages,
 			tools: availableTools,

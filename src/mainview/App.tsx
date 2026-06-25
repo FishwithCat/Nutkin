@@ -37,6 +37,7 @@ import { ProjectSettings } from "./components/ProjectSettings";
 import { KnowledgeBase } from "./components/KnowledgeBase";
 import { ReviewPanel } from "./components/ReviewPanel";
 import { Sidebar } from "./components/Sidebar";
+import { SystemSettings } from "./components/SystemSettings";
 import { TaskHeader } from "./components/TaskHeader";
 import { TopBar, type View } from "./components/TopBar";
 
@@ -47,6 +48,8 @@ function App() {
 	const [showCreate, setShowCreate] = useState(false);
 	// The project whose settings page is open on the landing view (null = closed).
 	const [settingsProjectId, setSettingsProjectId] = useState<string | null>(null);
+	// Whether the global 系统设置 page is open (full-screen, over everything).
+	const [showSystemSettings, setShowSystemSettings] = useState(false);
 	const [tasks, setTasks] = useState<Task[]>([]);
 	const [activeId, setActiveId] = useState<string | null>(null);
 	const [activeView, setActiveView] = useState<View>("tasks");
@@ -434,6 +437,11 @@ function App() {
 		}
 	}
 
+	// 系统设置 is global — a full-screen view over everything (landing or workspace).
+	if (showSystemSettings) {
+		return <SystemSettings onClose={() => setShowSystemSettings(false)} />;
+	}
+
 	// No project open → the project-list landing page (or a project's settings
 	// page, an exclusive full-screen view over the list).
 	if (!activeProjectId) {
@@ -458,6 +466,7 @@ function App() {
 					onOpen={openProject}
 					onNew={() => setShowCreate(true)}
 					onSettings={setSettingsProjectId}
+					onOpenSystemSettings={() => setShowSystemSettings(true)}
 				/>
 				{showCreate && (
 					<CreateProjectModal
@@ -479,6 +488,7 @@ function App() {
 				onManage={gotoProjectList}
 				activeView={activeView}
 				onViewChange={setActiveView}
+				onOpenSettings={() => setShowSystemSettings(true)}
 			/>
 
 			{activeView === "knowledge" ? (

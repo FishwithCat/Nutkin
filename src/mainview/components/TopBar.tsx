@@ -1,4 +1,4 @@
-import { BookOpen, ListChecks } from "lucide-react";
+import { BookOpen, ListChecks, Settings } from "lucide-react";
 import type { ProjectSummary } from "../types";
 import { ProjectSwitcher } from "./ProjectSwitcher";
 
@@ -12,6 +12,7 @@ export function TopBar({
 	onManage,
 	activeView,
 	onViewChange,
+	onOpenSettings,
 }: {
 	projects: ProjectSummary[];
 	activeProjectId: string;
@@ -20,6 +21,7 @@ export function TopBar({
 	onManage: () => void;
 	activeView: View;
 	onViewChange: (view: View) => void;
+	onOpenSettings: () => void;
 }) {
 	return (
 		<header className="flex items-center gap-3 px-5 h-14 border-b border-stone-200 bg-white shrink-0">
@@ -37,6 +39,14 @@ export function TopBar({
 				<ViewTab icon={ListChecks} label="任务" active={activeView === "tasks"} onClick={() => onViewChange("tasks")} />
 				<ViewTab icon={BookOpen} label="知识库" active={activeView === "knowledge"} onClick={() => onViewChange("knowledge")} />
 			</nav>
+			<button
+				type="button"
+				onClick={onOpenSettings}
+				title="系统设置"
+				className="ml-auto flex h-8 w-8 items-center justify-center rounded-lg text-stone-500 hover:bg-stone-100 hover:text-stone-700 transition"
+			>
+				<Settings size={16} aria-hidden="true" />
+			</button>
 		</header>
 	);
 }

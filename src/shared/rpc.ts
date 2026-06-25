@@ -36,6 +36,15 @@ export interface Project {
 	updatedAt: number;
 }
 
+/**
+ * App-level (global) settings — scope is the whole instance, not a project.
+ * Edited on the 系统设置 page; persisted as key/value rows in app_state.
+ */
+export interface AppSettings {
+	deepseekApiKey: string; // required for the agent to run
+	deepseekModel: string; // empty = default model
+}
+
 /** A project plus the live stats shown on the project list cards. */
 export interface ProjectSummary extends Project {
 	sessionCount: number;
@@ -203,6 +212,8 @@ export type AgentRPC = {
 			};
 			/** Load a project's knowledge entries, newest first. */
 			loadKnowledge: { params: { projectId: string }; response: Knowledge[] };
+			/** Load global app settings (model + API key). */
+			loadSettings: { params: undefined; response: AppSettings };
 		};
 		messages: {
 			userMessage: {
@@ -236,6 +247,8 @@ export type AgentRPC = {
 			saveKnowledge: Knowledge;
 			/** Delete a knowledge entry. Payload is the knowledge id. */
 			deleteKnowledge: string;
+			/** Save global app settings (model + API key). */
+			saveSettings: AppSettings;
 			/** Abort an in-flight agent turn. Payload is the assistantId. */
 			abortTurn: string;
 			/** Open a URL in the system default browser. Payload is the URL. */

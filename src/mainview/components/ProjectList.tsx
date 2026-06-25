@@ -12,12 +12,14 @@ export function ProjectList({
 	onOpen,
 	onNew,
 	onSettings,
+	onOpenSystemSettings,
 }: {
 	projects: ProjectSummary[];
 	busyProjectIds: Set<string>;
 	onOpen: (id: string) => void;
 	onNew: () => void;
 	onSettings: (id: string) => void;
+	onOpenSystemSettings: () => void;
 }) {
 	const [query, setQuery] = useState("");
 
@@ -40,6 +42,14 @@ export function ProjectList({
 					N
 				</div>
 				<span className="font-semibold text-stone-900">Nutkin</span>
+				<button
+					type="button"
+					onClick={onOpenSystemSettings}
+					title="系统设置"
+					className="ml-auto flex h-8 w-8 items-center justify-center rounded-lg text-stone-500 hover:bg-stone-100 hover:text-stone-700 transition"
+				>
+					<Settings size={16} aria-hidden="true" />
+				</button>
 			</header>
 
 			<div className="flex-1 overflow-y-auto">

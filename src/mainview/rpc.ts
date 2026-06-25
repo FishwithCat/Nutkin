@@ -3,6 +3,7 @@
 import { Electroview } from "electrobun/view";
 import type {
 	AgentRPC,
+	AppSettings,
 	ChatMessage,
 	Commit,
 	Knowledge,
@@ -133,6 +134,16 @@ export function reviewList(
 /** Load a project's knowledge entries, newest first. */
 export function loadKnowledge(projectId: string): Promise<Knowledge[]> {
 	return rpc.request.loadKnowledge({ projectId });
+}
+
+/** Load global app settings (model + API key). */
+export function loadSettings(): Promise<AppSettings> {
+	return rpc.request.loadSettings();
+}
+
+/** Save global app settings (model + API key). */
+export function saveSettings(settings: AppSettings) {
+	rpc.send.saveSettings(settings);
 }
 
 /** Upsert a knowledge entry. */

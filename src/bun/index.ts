@@ -20,6 +20,7 @@ import {
 } from "./sandbox";
 import type {
 	AgentRPC,
+	AppSettings,
 	Knowledge,
 	PersistedTask,
 	Project,
@@ -216,6 +217,12 @@ const setState = db.query(
 	 ON CONFLICT(key) DO UPDATE SET value = $value`,
 );
 
+// Global DeepSeek config lives in app_state (key/value); the 系统设置 page edits it.
+const readSettings = (): AppSettings => ({
+	deepseekApiKey: getState.get({ $key: "deepseekApiKey" })?.value ?? "",
+	deepseekModel: getState.get({ $key: "deepseekModel" })?.value ?? "",
+});
+
 // In-flight agent turns, keyed by assistantId, so the webview can abort them.
 const running = new Map<string, AbortController>();
 
@@ -272,6 +279,7 @@ const rpc = BrowserView.defineRPC<AgentRPC>({
 				reviewFile(sessionId, sandboxName, repoRoot, path),
 			loadKnowledge: ({ projectId }): Knowledge[] =>
 				selectKnowledge.all({ $project_id: projectId }).map(rowToKnowledge),
+			loadSettings: (): AppSettings => readSettings(),
 		},
 		messages: {
 			saveProject: (project: Project) => {
@@ -315,6 +323,10 @@ const rpc = BrowserView.defineRPC<AgentRPC>({
 			},
 			deleteKnowledge: (id) => {
 				deleteKnowledgeRow.run({ $id: id });
+			},
+			saveSettings: (settings: AppSettings) => {
+				setState.run({ $key: "deepseekApiKey", $value: settings.deepseekApiKey });
+				setState.run({ $key: "deepseekModel", $value: settings.deepseekModel });
 			},
 			userMessage: ({ assistantId, sessionId, messages, project, mode, sandboxes }) => {
 				const modelMessages = messages as ModelMessage[];
@@ -381,6 +393,7 @@ const rpc = BrowserView.defineRPC<AgentRPC>({
 					sandboxes ?? [],
 					persistKnowledge,
 					knowledge,
+					readSettings(),
 				);
 			},
 			abortTurn: (assistantId) => running.get(assistantId)?.abort(),
