@@ -54,6 +54,9 @@ function App() {
 	// Whether the "准备推送" review panel is open for the active session.
 	const [reviewOpen, setReviewOpen] = useState(false);
 	const scrollRef = useRef<HTMLDivElement>(null);
+	// Session scroll position saved while the review panel is open (the session
+	// scroll container unmounts), restored when returning to the session.
+	const reviewScrollRef = useRef(0);
 	const savedRef = useRef<Map<string, string>>(new Map());
 	// Whether the view should keep following new content. Updated on every scroll
 	// so we know — *before* the next update grows the container — if the user was
@@ -165,6 +168,14 @@ function App() {
 		const el = scrollRef.current;
 		if (el) el.scrollTop = el.scrollHeight;
 	}, [activeId]);
+
+	// Returning from the review panel remounts the session scroll container at
+	// scrollTop 0; restore where the user left off (saved in onReview).
+	useLayoutEffect(() => {
+		if (reviewOpen) return;
+		const el = scrollRef.current;
+		if (el) el.scrollTop = reviewScrollRef.current;
+	}, [reviewOpen]);
 
 	// Follow new content only while stuck to the bottom, so scrolling up to read
 	// history isn't yanked back down. useLayoutEffect runs before paint, so the
@@ -479,7 +490,10 @@ function App() {
 						<TaskHeader
 							task={activeTask}
 							canReview={activeTask.sandboxes.length > 0}
-							onReview={() => setReviewOpen(true)}
+							onReview={() => {
+								reviewScrollRef.current = scrollRef.current?.scrollTop ?? 0;
+								setReviewOpen(true);
+							}}
 						/>
 					)}
 
