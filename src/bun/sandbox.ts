@@ -77,21 +77,24 @@ export async function createSandbox(
 	sessionId: string,
 	name: string,
 	image = "alpine",
+	memoryMib?: number,
 ) {
 	const b = bucket(sessionId);
 	if (b.has(name)) {
 		return { error: `A sandbox named "${name}" already exists in this session.` };
 	}
 	// Same name left on disk by a previous run? Adopt it instead of failing.
+	// ponytail: memoryMib is ignored on reattach — the disk sandbox keeps its
+	// original size. Recreate with a new name to change it.
 	const existing = await reattach(sessionId, name);
 	if (existing) {
 		b.set(name, existing);
 		images.set(existing, image);
 		return { name, image, status: "running" as const, reconnected: true };
 	}
-	const sandbox = await Sandbox.builder(vmName(sessionId, name))
-		.image(image)
-		.create();
+	let builder = Sandbox.builder(vmName(sessionId, name)).image(image);
+	if (memoryMib) builder = builder.memory(memoryMib);
+	const sandbox = await builder.create();
 	b.set(name, sandbox);
 	images.set(sandbox, image);
 	return { name, image, status: "running" as const };

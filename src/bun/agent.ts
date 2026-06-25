@@ -213,9 +213,15 @@ function sandboxTools(
 					.string()
 					.optional()
 					.describe("Short description of what this sandbox is for, e.g. 'Vite frontend dev server'. Recorded so later turns reuse it instead of creating a duplicate."),
+				memoryMib: z
+					.number()
+					.int()
+					.positive()
+					.optional()
+					.describe("Guest memory in MiB, e.g. 512, 2048. Defaults to the runtime default when omitted. Request more for memory-heavy workloads (builds, large datasets)."),
 			}),
-			execute: ({ name = "default", image = defaultImage }) =>
-				createSandbox(sessionId, name, image),
+			execute: ({ name = "default", image = defaultImage, memoryMib }) =>
+				createSandbox(sessionId, name, image, memoryMib),
 		}),
 		runCommand: tool({
 			description:
