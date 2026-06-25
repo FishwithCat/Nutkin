@@ -253,13 +253,23 @@ opened files are cached client-side, so switching back is instant.
 ## Knowledge Base (知识库)
 
 The top bar has **任务 / 知识库** view tabs. 知识库 is a project-level knowledge
-store. Knowledge is split into four fixed **types** — 项目背景 / 架构决策 /
-编码规范 / 领域术语 — shown in the left column; the right column lists the entries
-of the selected type and supports full CRUD: add (the 新增 button), edit (click a
-card), delete, and toggle `isAvailable` (the per-entry switch). A title search
-filters the visible list.
+store with a **three-column** layout: a category sidebar (全部 / 待审核 + the four
+fixed **types** 项目背景 / 架构决策 / 编码规范 / 领域术语, each with a count), an
+entry list for the selected category (with a title search), and a detail pane. The
+detail pane renders the entry's `description` as Markdown (reusing `Markdown.tsx`)
+and carries the actions: 编辑 (opens an inline editor in the same pane), delete,
+and a clickable "已被 Agent 学习 / 未启用" badge that toggles `isAvailable`. The
+inline editor has a Markdown toolbar (heading/bold/italic/list/code/link, the
+pure text transforms live in `mdToolbar.ts`).
 
-Each entry is `{ id, projectId, title, description, type, createdAt, isAvailable }`,
+**Review gate.** Every entry carries a `reviewed` flag. New entries (the 新增 `+`
+button) enter **unreviewed** and appear only under **待审核** — quarantined from
+the active KB. Their detail pane shows a review action bar: 驳回 (delete),
+编辑后通过 (edit then approve), 通过入库 (approve). Approving sets `reviewed = true`
+and the entry joins 全部 and its type. 全部 and the type tabs count only reviewed
+entries. (Pre-existing rows migrate as `reviewed = 1`.)
+
+Each entry is `{ id, projectId, title, description, type, createdAt, isAvailable, reviewed }`,
 persisted to the `knowledge` table in SQLite and **scoped per project** (like
 sessions), so switching projects shows only that project's knowledge. The storage
 follows the same pattern as tasks/projects: prepared queries + RPC handlers in

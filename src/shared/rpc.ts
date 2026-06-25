@@ -171,6 +171,9 @@ export interface Knowledge {
 	type: KnowledgeType;
 	createdAt: number; // ms epoch
 	isAvailable: boolean;
+	// Whether the entry has passed review and joined the active KB. Unreviewed
+	// entries are quarantined under the 待审核 category until approved.
+	reviewed: boolean;
 }
 
 export type AgentRPC = {

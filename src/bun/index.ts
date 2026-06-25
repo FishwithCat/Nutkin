@@ -61,9 +61,20 @@ db.run(
 		description  TEXT NOT NULL,
 		type         TEXT NOT NULL,
 		created_at   INTEGER NOT NULL,
-		is_available INTEGER NOT NULL DEFAULT 1
+		is_available INTEGER NOT NULL DEFAULT 1,
+		reviewed     INTEGER NOT NULL DEFAULT 1
 	)`,
 );
+// Migration: `reviewed` gates an entry into the active KB. Pre-existing rows are
+// already in use, so they default to reviewed=1. Guard so it's only added once.
+if (
+	!db
+		.query<{ name: string }, []>("PRAGMA table_info(knowledge)")
+		.all()
+		.some((c) => c.name === "reviewed")
+) {
+	db.run("ALTER TABLE knowledge ADD COLUMN reviewed INTEGER NOT NULL DEFAULT 1");
+}
 
 // Migration: tasks predate projects, so add the column and back-fill a default
 // project that adopts every orphaned conversation. New columns can't be added
@@ -142,9 +153,9 @@ const selectProjects = db.query<
 const deleteProjectRow = db.query("DELETE FROM projects WHERE id = $id");
 
 const upsertKnowledge = db.query(
-	`INSERT INTO knowledge (id, project_id, title, description, type, created_at, is_available)
-	 VALUES ($id, $project_id, $title, $description, $type, $created_at, $is_available)
-	 ON CONFLICT(id) DO UPDATE SET title = $title, description = $description, type = $type, is_available = $is_available`,
+	`INSERT INTO knowledge (id, project_id, title, description, type, created_at, is_available, reviewed)
+	 VALUES ($id, $project_id, $title, $description, $type, $created_at, $is_available, $reviewed)
+	 ON CONFLICT(id) DO UPDATE SET title = $title, description = $description, type = $type, is_available = $is_available, reviewed = $reviewed`,
 );
 const selectKnowledge = db.query<
 	{
@@ -155,10 +166,11 @@ const selectKnowledge = db.query<
 		type: string;
 		created_at: number;
 		is_available: number;
+		reviewed: number;
 	},
 	{ $project_id: string }
 >(
-	"SELECT id, project_id, title, description, type, created_at, is_available FROM knowledge WHERE project_id = $project_id ORDER BY created_at DESC",
+	"SELECT id, project_id, title, description, type, created_at, is_available, reviewed FROM knowledge WHERE project_id = $project_id ORDER BY created_at DESC",
 );
 const deleteKnowledgeRow = db.query("DELETE FROM knowledge WHERE id = $id");
 
@@ -233,6 +245,7 @@ const rpc = BrowserView.defineRPC<AgentRPC>({
 					type: row.type as Knowledge["type"],
 					createdAt: row.created_at,
 					isAvailable: row.is_available === 1,
+					reviewed: row.reviewed === 1,
 				})),
 		},
 		messages: {
@@ -281,6 +294,7 @@ const rpc = BrowserView.defineRPC<AgentRPC>({
 					$type: k.type,
 					$created_at: k.createdAt,
 					$is_available: k.isAvailable ? 1 : 0,
+					$reviewed: k.reviewed ? 1 : 0,
 				});
 			},
 			deleteKnowledge: (id) => {
