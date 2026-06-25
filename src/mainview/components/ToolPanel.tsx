@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
 	Ban,
 	Box,
@@ -86,6 +86,17 @@ function formatDuration(ms: number | undefined): string {
 function elapsed(tool: ToolEvent): number | undefined {
 	if (tool.startedAt === undefined || tool.endedAt === undefined) return undefined;
 	return tool.endedAt - tool.startedAt;
+}
+
+// Re-render once a second while `active`, so a running call's elapsed timer
+// ticks. Stops cleanly the moment the call finishes (active = false).
+function useTick(active: boolean): void {
+	const [, setN] = useState(0);
+	useEffect(() => {
+		if (!active) return;
+		const id = setInterval(() => setN((n) => n + 1), 1000);
+		return () => clearInterval(id);
+	}, [active]);
 }
 
 // Wall-clock span covering a batch of finished calls: from the first start to
@@ -195,9 +206,14 @@ function Summary({ tools }: { tools: ToolEvent[] }) {
 // duration), so a call completing swaps these in place without reflow.
 function LiveRow({ tool, bordered }: { tool: ToolEvent; bordered: boolean }) {
 	const running = tool.output === undefined;
+	useTick(running && tool.startedAt !== undefined);
 	const outcome = running ? undefined : toolOutcome(tool.output);
 	const { icon: Icon, summary } = toolMeta(tool);
-	const took = formatDuration(elapsed(tool));
+	// Live timer while running (start → now), whole seconds; final span once finished.
+	const took =
+		running && tool.startedAt !== undefined
+			? `${Math.floor((Date.now() - tool.startedAt) / 1000)}s`
+			: formatDuration(elapsed(tool));
 	return (
 		<div
 			className={`flex items-center gap-2.5 px-4 py-2.5 ${bordered ? "border-t border-stone-100" : ""}`}
@@ -215,7 +231,11 @@ function LiveRow({ tool, bordered }: { tool: ToolEvent; bordered: boolean }) {
 			<span className="text-sm font-medium text-stone-800 shrink-0">{tool.toolName}</span>
 			<span className="min-w-0 flex-1 truncate font-mono text-xs text-stone-400">{summary}</span>
 			<span className="ml-auto shrink-0 text-xs tabular-nums">
-				{running ? <span className="text-clay-500">运行中</span> : <span className="text-stone-400">{took}</span>}
+				{running ? (
+					<span className="text-clay-500">运行中 {took}</span>
+				) : (
+					<span className="text-stone-400">{took}</span>
+				)}
 			</span>
 		</div>
 	);
