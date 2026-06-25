@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { ArrowUpRight, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ArrowUp, ArrowUpRight, X } from "lucide-react";
 import type { Anchor, UIMessage } from "../types";
 import { anchorDomId, ThreadMessage } from "./DiffView";
 
@@ -22,6 +22,15 @@ export function DiscussionPanel({
 }) {
 	const [draft, setDraft] = useState("");
 	const pending = busy || thread.some((m) => m.pending);
+	const scrollRef = useRef<HTMLDivElement>(null);
+
+	// Follow the conversation as it streams. Depend on the last message's content
+	// length so each token append re-pins to the bottom, not just new messages.
+	const tail = thread[thread.length - 1];
+	useEffect(() => {
+		const el = scrollRef.current;
+		if (el) el.scrollTop = el.scrollHeight;
+	}, [thread.length, tail?.content.length]);
 	const file = anchor.path.split("/").pop() ?? anchor.path;
 	const lines =
 		anchor.endLine !== anchor.startLine ? `${anchor.startLine}-${anchor.endLine}` : `${anchor.startLine}`;
@@ -43,7 +52,7 @@ export function DiscussionPanel({
 	}
 
 	return (
-		<aside className="flex w-[380px] shrink-0 flex-col border-l border-stone-200 bg-white">
+		<aside className="flex w-[460px] shrink-0 flex-col border-l border-stone-200 bg-white">
 			<div className="flex items-center gap-2.5 border-b border-stone-100 px-4 py-3">
 				<div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-clay-500 text-sm font-bold text-white">
 					N
@@ -81,7 +90,7 @@ export function DiscussionPanel({
 			</div>
 
 			{/* Conversation */}
-			<div className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
+			<div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
 				{thread.length === 0 ? (
 					<div className="text-xs text-stone-400">问问这段代码——它为什么这么写、有没有更稳的方案…</div>
 				) : (
@@ -110,9 +119,10 @@ export function DiscussionPanel({
 						type="button"
 						onClick={submit}
 						disabled={!draft.trim() || pending}
-						className="shrink-0 self-end rounded-lg bg-clay-500 px-3 py-1.5 text-sm text-white disabled:opacity-40"
+						className="shrink-0 self-end flex h-9 w-9 items-center justify-center rounded-xl bg-clay-500 text-white hover:bg-clay-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+						title="发送"
 					>
-						发送
+						<ArrowUp size={18} aria-hidden="true" />
 					</button>
 				</div>
 			</div>

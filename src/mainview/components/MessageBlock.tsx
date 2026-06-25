@@ -17,7 +17,7 @@ type Segment =
 	| { kind: "diff"; key: string; diff: FileDiff }
 	| { kind: "reasoning"; key: string; text: string };
 
-function toSegments(
+export function toSegments(
 	tools: ToolEvent[],
 	reasoning: ReasoningPart[],
 	content: string,
@@ -140,7 +140,7 @@ export const MessageBlock = memo(function MessageBlock({
 // A thinking block styled like ToolPanel: a bordered card whose header toggles
 // the reasoning text. While the turn is still streaming into this block (`live`)
 // the title pulses and a dot blinks, matching the tool panel's "运行中" feel.
-function ReasoningPanel({ text, live }: { text: string; live: boolean }) {
+export function ReasoningPanel({ text, live }: { text: string; live: boolean }) {
 	const [open, setOpen] = useState(false);
 	return (
 		<div className="rounded-xl border border-stone-200 bg-white overflow-hidden">

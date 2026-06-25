@@ -1,8 +1,9 @@
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { diffLines } from "diff";
-import { ChevronRight, FilePen, MessageSquare, UnfoldVertical } from "lucide-react";
+import { ArrowUp, ChevronRight, FilePen, MessageSquare, UnfoldVertical } from "lucide-react";
 import type { Anchor, Commit, ToolEvent, UIMessage } from "../types";
 import { Markdown } from "./Markdown";
+import { ReasoningPanel, toSegments } from "./MessageBlock";
 
 // The before/after payload a successful writeFile/editFile returns. Rendered as
 // a standalone diff card, separate from the regular tool-call panel.
@@ -426,9 +427,10 @@ export const DiffView = memo(function DiffView({
 								type="button"
 								onClick={submitInline}
 								disabled={!draft.trim()}
-								className="shrink-0 self-end rounded-lg bg-clay-500 px-3 py-1.5 text-sm text-white disabled:opacity-40"
+								className="shrink-0 self-end flex h-9 w-9 items-center justify-center rounded-xl bg-clay-500 text-white hover:bg-clay-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+								title="发送"
 							>
-								发送
+								<ArrowUp size={18} aria-hidden="true" />
 							</button>
 						</div>
 					</div>
@@ -544,23 +546,34 @@ export function ThreadMessage({ message }: { message: UIMessage }) {
 	if (message.role === "user") {
 		return (
 			<div className="flex justify-end">
-				<div className="max-w-[85%] rounded-2xl rounded-br-sm bg-clay-500 px-3 py-1.5 text-xs leading-relaxed text-white whitespace-pre-wrap">
+				<div className="max-w-[85%] rounded-lg rounded-br-sm bg-clay-500 px-3 py-1.5 text-xs leading-relaxed text-white whitespace-pre-wrap">
 					{message.content}
 				</div>
 			</div>
 		);
 	}
-	const diffs = message.tools.map(fileDiff).filter((d): d is FileDiff => d !== null);
+	// Same stream order as the main view (toSegments), but the thread hides
+	// non-diff tool calls to stay tidy.
+	const segments = toSegments(message.tools, message.reasoning, message.content).filter(
+		(s) => s.kind !== "tools",
+	);
+	const lastReasoningKey =
+		message.pending && segments[segments.length - 1]?.kind === "reasoning"
+			? segments[segments.length - 1].key
+			: null;
 	return (
 		<div className="space-y-2">
-			{message.content && (
-				<div className="text-xs leading-relaxed text-stone-800">
-					<Markdown>{message.content}</Markdown>
-				</div>
+			{segments.map((seg) =>
+				seg.kind === "reasoning" ? (
+					<ReasoningPanel key={seg.key} text={seg.text} live={seg.key === lastReasoningKey} />
+				) : seg.kind === "diff" ? (
+					<DiffView key={seg.key} {...seg.diff} />
+				) : seg.kind === "text" ? (
+					<div key={seg.key} className="text-xs leading-relaxed text-stone-800">
+						<Markdown>{seg.text}</Markdown>
+					</div>
+				) : null,
 			)}
-			{diffs.map((d) => (
-				<DiffView key={d.path} {...d} />
-			))}
 			{message.pending && !message.content && (
 				<span className="text-xs text-stone-400">…</span>
 			)}
