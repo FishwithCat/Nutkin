@@ -12,6 +12,7 @@ import {
 	createSandbox,
 	editFile,
 	listSandboxes,
+	removeSandbox,
 	runCommand,
 	stopSandbox,
 	writeFile,
@@ -63,7 +64,7 @@ export function htmlToText(html: string): string {
 const SYSTEM_PROMPT = [
 	"You are a helpful AI assistant powered by DeepSeek with access to tools:",
 	"getCurrentTime, webFetch (read a URL as plain text), and per-session Linux sandboxes",
-	"(createSandbox, runCommand, writeFile, editFile, stopSandbox, listSandboxes). Each tool's own description",
+	"(createSandbox, runCommand, writeFile, editFile, stopSandbox, removeSandbox, listSandboxes). Each tool's own description",
 	"says how to use it. To create or overwrite a file use writeFile, and to modify",
 	"part of a file use editFile — do NOT change files with shell redirection like",
 	"'echo > file' or 'sed -i' via runCommand, so every file change is shown to the",
@@ -305,6 +306,20 @@ function sandboxTools(
 				"List this session's sandboxes (including ones persisted from earlier runs) with their status.",
 			inputSchema: z.object({}),
 			execute: () => listSandboxes(sessionId),
+		}),
+		removeSandbox: tool({
+			description:
+				"Permanently delete a sandbox in this session, including all its files. Irreversible — use to clean up sandboxes you no longer need. To merely pause one, use stopSandbox instead.",
+			inputSchema: z.object({
+				name: z
+					.string()
+					.optional()
+					.describe("Which sandbox to remove. Defaults to 'default'."),
+			}),
+			execute: async ({ name = "default" }) => {
+				await removeSandbox(sessionId, name);
+				return { name, status: "removed" as const };
+			},
 		}),
 	};
 }

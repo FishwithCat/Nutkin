@@ -14,6 +14,7 @@ import {
 	Loader2,
 	Square,
 	Terminal,
+	Trash2,
 	Wrench,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -60,6 +61,8 @@ function toolMeta(tool: ToolEvent): { icon: LucideIcon; summary: string } {
 			return { icon: FilePen, summary: str(input.path) };
 		case "stopSandbox":
 			return { icon: Square, summary: str(input.name) || "default" };
+		case "removeSandbox":
+			return { icon: Trash2, summary: str(input.name) || "default" };
 		case "listSandboxes":
 			return { icon: List, summary: "" };
 		case "refactor":
