@@ -62,6 +62,9 @@ function App() {
 	// Session scroll position saved while the review panel is open (the session
 	// scroll container unmounts), restored when returning to the session.
 	const reviewScrollRef = useRef(0);
+	// Same problem when switching to the 知识库 view: the session container
+	// unmounts, so save its offset and restore it on return.
+	const viewScrollRef = useRef(0);
 	const savedRef = useRef<Map<string, string>>(new Map());
 	// Whether the view should keep following new content. Updated on every scroll
 	// so we know — *before* the next update grows the container — if the user was
@@ -181,6 +184,14 @@ function App() {
 		const el = scrollRef.current;
 		if (el) el.scrollTop = reviewScrollRef.current;
 	}, [reviewOpen]);
+
+	// Switching back from 知识库 remounts the session container at scrollTop 0;
+	// restore the offset saved when we left (in onViewChange).
+	useLayoutEffect(() => {
+		if (activeView !== "tasks") return;
+		const el = scrollRef.current;
+		if (el) el.scrollTop = viewScrollRef.current;
+	}, [activeView]);
 
 	// Follow new content only while stuck to the bottom, so scrolling up to read
 	// history isn't yanked back down. useLayoutEffect runs before paint, so the
@@ -488,7 +499,10 @@ function App() {
 				onNew={() => setShowCreate(true)}
 				onManage={gotoProjectList}
 				activeView={activeView}
-				onViewChange={setActiveView}
+				onViewChange={(v) => {
+					if (v !== "tasks") viewScrollRef.current = scrollRef.current?.scrollTop ?? 0;
+					setActiveView(v);
+				}}
 				onOpenSettings={() => setShowSystemSettings(true)}
 			/>
 
