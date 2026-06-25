@@ -156,7 +156,7 @@ export function KnowledgeBase({ projectId }: { projectId: string }) {
 	return (
 		<div className="flex min-h-0 flex-1">
 			{/* 左栏：分类 */}
-			<div className="w-48 shrink-0 flex flex-col border-r border-stone-200 bg-stone-50">
+			<div className="w-48 shrink-0 flex flex-col border-r border-stone-200 bg-white">
 				<div className="flex-1 overflow-y-auto p-3 space-y-0.5">
 					<CategoryRow
 						label="全部"
@@ -188,7 +188,7 @@ export function KnowledgeBase({ projectId }: { projectId: string }) {
 			</div>
 
 			{/* 中栏：列表 */}
-			<div className="w-80 shrink-0 flex flex-col border-r border-stone-200 bg-stone-50/50">
+			<div className="w-80 shrink-0 flex flex-col border-r border-stone-200 bg-white">
 				<div className="flex items-center gap-2 px-4 h-14 shrink-0">
 					<span className="text-sm font-semibold text-stone-800">{categoryLabel}</span>
 					<span className="text-xs text-stone-400">{visible.length} 条</span>
@@ -234,7 +234,7 @@ export function KnowledgeBase({ projectId }: { projectId: string }) {
 			</div>
 
 			{/* 右栏：详情 / 编辑 */}
-			<div className="min-w-0 flex-1 flex flex-col bg-white">
+			<div className="min-w-0 flex-1 flex flex-col bg-stone-50">
 				{draft ? (
 					<DraftForm
 						draft={draft}
@@ -244,6 +244,7 @@ export function KnowledgeBase({ projectId }: { projectId: string }) {
 					/>
 				) : current ? (
 					<Detail
+						key={current.id}
 						item={current}
 						onEdit={() =>
 							setDraft({
@@ -370,6 +371,7 @@ function Detail({
 	onDelete: () => void;
 }) {
 	const pending = !item.reviewed;
+	const [confirmDelete, setConfirmDelete] = useState(false);
 	return (
 		<>
 			<div className="flex-1 overflow-y-auto px-8 pt-6 pb-8">
@@ -418,14 +420,34 @@ function Detail({
 								<Pencil size={14} aria-hidden="true" />
 								编辑
 							</button>
-							<button
-								type="button"
-								onClick={onDelete}
-								title="删除"
-								className="w-8 h-8 rounded-lg flex items-center justify-center text-stone-400 hover:bg-rose-50 hover:text-rose-500 transition-colors"
-							>
-								<Trash2 size={15} aria-hidden="true" />
-							</button>
+							{confirmDelete ? (
+								<>
+									<button
+										type="button"
+										onClick={onDelete}
+										className="h-8 rounded-lg bg-rose-600 text-white flex items-center gap-1.5 px-3 text-sm hover:bg-rose-700 transition-colors"
+									>
+										<Trash2 size={14} aria-hidden="true" />
+										确认删除
+									</button>
+									<button
+										type="button"
+										onClick={() => setConfirmDelete(false)}
+										className="h-8 rounded-lg border border-stone-200 bg-white px-3 text-sm text-stone-600 hover:bg-stone-50 transition-colors"
+									>
+										取消
+									</button>
+								</>
+							) : (
+								<button
+									type="button"
+									onClick={() => setConfirmDelete(true)}
+									title="删除"
+									className="w-8 h-8 rounded-lg flex items-center justify-center text-stone-400 hover:bg-rose-50 hover:text-rose-500 transition-colors"
+								>
+									<Trash2 size={15} aria-hidden="true" />
+								</button>
+							)}
 						</div>
 					)}
 				</div>
