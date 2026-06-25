@@ -34,10 +34,11 @@ import { EmptyState } from "./components/EmptyState";
 import { MessageBlock } from "./components/MessageBlock";
 import { ProjectList } from "./components/ProjectList";
 import { ProjectSettings } from "./components/ProjectSettings";
+import { KnowledgeBase } from "./components/KnowledgeBase";
 import { ReviewPanel } from "./components/ReviewPanel";
 import { Sidebar } from "./components/Sidebar";
 import { TaskHeader } from "./components/TaskHeader";
-import { TopBar } from "./components/TopBar";
+import { TopBar, type View } from "./components/TopBar";
 
 function App() {
 	const [projects, setProjects] = useState<ProjectSummary[]>([]);
@@ -48,6 +49,7 @@ function App() {
 	const [settingsProjectId, setSettingsProjectId] = useState<string | null>(null);
 	const [tasks, setTasks] = useState<Task[]>([]);
 	const [activeId, setActiveId] = useState<string | null>(null);
+	const [activeView, setActiveView] = useState<View>("tasks");
 	const [input, setInput] = useState("");
 	// The code anchor whose discussion is open in the side panel (null = closed).
 	const [openAnchor, setOpenAnchor] = useState<Anchor | null>(null);
@@ -474,8 +476,15 @@ function App() {
 				onSwitch={openProject}
 				onNew={() => setShowCreate(true)}
 				onManage={gotoProjectList}
+				activeView={activeView}
+				onViewChange={setActiveView}
 			/>
 
+			{activeView === "knowledge" ? (
+				<div className="flex-1 flex min-h-0">
+					<KnowledgeBase projectId={activeProjectId} />
+				</div>
+			) : (
 			<div className="flex-1 flex min-h-0">
 				<Sidebar
 					tasks={projectTasks}
@@ -576,6 +585,7 @@ function App() {
 					/>
 				)}
 			</div>
+			)}
 
 			{showCreate && (
 				<CreateProjectModal

@@ -156,6 +156,23 @@ export interface PersistedTask {
 	sandboxes?: SessionSandbox[];
 }
 
+export type KnowledgeType =
+	| "background" // 项目背景
+	| "architecture" // 架构决策
+	| "convention" // 编码规范
+	| "glossary"; // 领域术语
+
+/** One stored piece of project knowledge, scoped to a project like tasks are. */
+export interface Knowledge {
+	id: string;
+	projectId: string;
+	title: string;
+	description: string;
+	type: KnowledgeType;
+	createdAt: number; // ms epoch
+	isAvailable: boolean;
+}
+
 export type AgentRPC = {
 	// Messages the Bun process receives (sent by the webview).
 	bun: RPCSchema<{
@@ -180,6 +197,8 @@ export type AgentRPC = {
 				params: { sessionId: string; sandboxName: string; repoRoot: string; path: string };
 				response: ReviewFileContent;
 			};
+			/** Load a project's knowledge entries, newest first. */
+			loadKnowledge: { params: { projectId: string }; response: Knowledge[] };
 		};
 		messages: {
 			userMessage: {
@@ -209,6 +228,10 @@ export type AgentRPC = {
 			saveTask: PersistedTask;
 			/** Delete a conversation and remove its sandboxes. Payload is the task id. */
 			deleteTask: string;
+			/** Upsert a knowledge entry. */
+			saveKnowledge: Knowledge;
+			/** Delete a knowledge entry. Payload is the knowledge id. */
+			deleteKnowledge: string;
 			/** Abort an in-flight agent turn. Payload is the assistantId. */
 			abortTurn: string;
 			/** Open a URL in the system default browser. Payload is the URL. */

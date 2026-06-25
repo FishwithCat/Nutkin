@@ -20,6 +20,7 @@ import {
 } from "./sandbox";
 import type {
 	AgentRPC,
+	Knowledge,
 	PersistedTask,
 	Project,
 	ProjectSummary,
@@ -50,6 +51,17 @@ db.run(
 	`CREATE TABLE IF NOT EXISTS app_state (
 		key   TEXT PRIMARY KEY,
 		value TEXT NOT NULL
+	)`,
+);
+db.run(
+	`CREATE TABLE IF NOT EXISTS knowledge (
+		id           TEXT PRIMARY KEY,
+		project_id   TEXT NOT NULL,
+		title        TEXT NOT NULL,
+		description  TEXT NOT NULL,
+		type         TEXT NOT NULL,
+		created_at   INTEGER NOT NULL,
+		is_available INTEGER NOT NULL DEFAULT 1
 	)`,
 );
 
@@ -129,6 +141,27 @@ const selectProjects = db.query<
 );
 const deleteProjectRow = db.query("DELETE FROM projects WHERE id = $id");
 
+const upsertKnowledge = db.query(
+	`INSERT INTO knowledge (id, project_id, title, description, type, created_at, is_available)
+	 VALUES ($id, $project_id, $title, $description, $type, $created_at, $is_available)
+	 ON CONFLICT(id) DO UPDATE SET title = $title, description = $description, type = $type, is_available = $is_available`,
+);
+const selectKnowledge = db.query<
+	{
+		id: string;
+		project_id: string;
+		title: string;
+		description: string;
+		type: string;
+		created_at: number;
+		is_available: number;
+	},
+	{ $project_id: string }
+>(
+	"SELECT id, project_id, title, description, type, created_at, is_available FROM knowledge WHERE project_id = $project_id ORDER BY created_at DESC",
+);
+const deleteKnowledgeRow = db.query("DELETE FROM knowledge WHERE id = $id");
+
 const getState = db.query<{ value: string }, { $key: string }>(
 	"SELECT value FROM app_state WHERE key = $key",
 );
@@ -191,6 +224,16 @@ const rpc = BrowserView.defineRPC<AgentRPC>({
 				reviewList(sessionId, sandboxes),
 			reviewFile: ({ sessionId, sandboxName, repoRoot, path }) =>
 				reviewFile(sessionId, sandboxName, repoRoot, path),
+			loadKnowledge: ({ projectId }): Knowledge[] =>
+				selectKnowledge.all({ $project_id: projectId }).map((row) => ({
+					id: row.id,
+					projectId: row.project_id,
+					title: row.title,
+					description: row.description,
+					type: row.type as Knowledge["type"],
+					createdAt: row.created_at,
+					isAvailable: row.is_available === 1,
+				})),
 		},
 		messages: {
 			saveProject: (project: Project) => {
@@ -228,6 +271,20 @@ const rpc = BrowserView.defineRPC<AgentRPC>({
 				deleteTaskRow.run({ $id: id });
 				// Tear down the chat's sandboxes (rootfs included) — fire and forget.
 				void removeSessionSandboxes(id);
+			},
+			saveKnowledge: (k: Knowledge) => {
+				upsertKnowledge.run({
+					$id: k.id,
+					$project_id: k.projectId,
+					$title: k.title,
+					$description: k.description,
+					$type: k.type,
+					$created_at: k.createdAt,
+					$is_available: k.isAvailable ? 1 : 0,
+				});
+			},
+			deleteKnowledge: (id) => {
+				deleteKnowledgeRow.run({ $id: id });
 			},
 			userMessage: ({ assistantId, sessionId, messages, project, mode, sandboxes }) => {
 				const modelMessages = messages as ModelMessage[];

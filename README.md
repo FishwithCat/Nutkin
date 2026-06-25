@@ -250,6 +250,23 @@ file's before/after text (capped at 10k chars, truncation flagged) only when it'
 opened. The panel auto-selects the first file, so its diff still loads on open;
 opened files are cached client-side, so switching back is instant.
 
+## Knowledge Base (知识库)
+
+The top bar has **任务 / 知识库** view tabs. 知识库 is a project-level knowledge
+store. Knowledge is split into four fixed **types** — 项目背景 / 架构决策 /
+编码规范 / 领域术语 — shown in the left column; the right column lists the entries
+of the selected type and supports full CRUD: add (the 新增 button), edit (click a
+card), delete, and toggle `isAvailable` (the per-entry switch). A title search
+filters the visible list.
+
+Each entry is `{ id, projectId, title, description, type, createdAt, isAvailable }`,
+persisted to the `knowledge` table in SQLite and **scoped per project** (like
+sessions), so switching projects shows only that project's knowledge. The storage
+follows the same pattern as tasks/projects: prepared queries + RPC handlers in
+`src/bun/index.ts`, client wrappers (`loadKnowledge` / `saveKnowledge` /
+`deleteKnowledge`) in `src/mainview/rpc.ts`, types in `src/shared/rpc.ts`, UI in
+`src/mainview/components/KnowledgeBase.tsx`.
+
 ## How HMR Works
 
 When you run `bun run dev:hmr`:

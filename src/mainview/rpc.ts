@@ -5,6 +5,7 @@ import type {
 	AgentRPC,
 	ChatMessage,
 	Commit,
+	Knowledge,
 	PersistedTask,
 	Project,
 	ProjectRepo,
@@ -127,6 +128,21 @@ export function reviewList(
 	sandboxes: string[],
 ): Promise<ReviewEntry[]> {
 	return rpc.request.reviewList({ sessionId, sandboxes });
+}
+
+/** Load a project's knowledge entries, newest first. */
+export function loadKnowledge(projectId: string): Promise<Knowledge[]> {
+	return rpc.request.loadKnowledge({ projectId });
+}
+
+/** Upsert a knowledge entry. */
+export function saveKnowledge(knowledge: Knowledge) {
+	rpc.send.saveKnowledge(knowledge);
+}
+
+/** Delete a knowledge entry. */
+export function deleteKnowledge(id: string) {
+	rpc.send.deleteKnowledge(id);
 }
 
 /** The before/after text for one reviewed file, fetched when it's opened. */
